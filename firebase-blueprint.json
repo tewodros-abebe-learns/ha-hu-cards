@@ -1,0 +1,135 @@
+{
+  "entities": {
+    "Folder": {
+      "title": "Folder",
+      "description": "A folder representing a level in the hierarchy (Main Folder, Subfolder, or Unit).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The name of the folder."
+        },
+        "parentId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The ID of the parent folder, or null if it's a Level 1 folder."
+        },
+        "level": {
+          "type": "integer",
+          "description": "The level of the folder (1, 2, or 3)."
+        },
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The UID of the user who owns this folder."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the folder was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the folder was last modified."
+        }
+      },
+      "required": ["name", "level", "ownerId"]
+    },
+    "Flashcard": {
+      "title": "Flashcard",
+      "description": "A flashcard belonging to a unit with SM-2 spaced repetition parameters.",
+      "type": "object",
+      "properties": {
+        "unitId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The ID of the unit (Level 3 folder) this card belongs to."
+        },
+        "cardName": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Custom user-defined title for the flashcard."
+        },
+        "frontText": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Text on the front of the card."
+        },
+        "backText": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Text on the back of the card."
+        },
+        "frontImageUrl": {
+          "type": "string",
+          "maxLength": 500000,
+          "description": "Compressed base64 data URL or URL of the image on the front."
+        },
+        "backImageUrl": {
+          "type": "string",
+          "maxLength": 500000,
+          "description": "Compressed base64 data URL or URL of the image on the back."
+        },
+        "aspectRatio": {
+          "type": "number",
+          "description": "Aspect ratio of the card (width/height)."
+        },
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The UID of the user who owns this card."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the card was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the card was last modified."
+        },
+        "textSize": {
+          "type": "integer",
+          "description": "Font size in pixels for the text overlay."
+        },
+        "textColor": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Hex or CSS color string for the text overlay."
+        },
+        "verticalAlign": {
+          "type": "string",
+          "enum": ["top", "center", "bottom"],
+          "description": "Vertical alignment of the text overlay."
+        },
+        "easeFactor": {
+          "type": "number",
+          "description": "SM-2 spaced repetition ease factor."
+        },
+        "interval": {
+          "type": "integer",
+          "description": "SM-2 spaced repetition interval in days."
+        },
+        "nextReview": {
+          "type": "number",
+          "description": "Epoch timestamp in milliseconds for next scheduled review."
+        }
+      },
+      "required": ["unitId", "ownerId"]
+    }
+  },
+  "firestore": {
+    "/folders/{folderId}": {
+      "schema": "Folder",
+      "description": "A collection of folders for the nested hierarchy."
+    },
+    "/flashcards/{cardId}": {
+      "schema": "Flashcard",
+      "description": "A collection of flashcards."
+    }
+  }
+}

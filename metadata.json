@@ -1,0 +1,10 @@
+{
+  "name": "FINAL: Ha Hu Cards",
+  "description": "A minimalist, distraction-free flashcard application for consistent learning, with your preferences.",
+  "requestFramePermissions": [
+    "identity-credentials-get"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

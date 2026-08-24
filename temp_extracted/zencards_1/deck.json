@@ -1,0 +1,25 @@
+{
+  "type": "zencards-deck",
+  "version": 2,
+  "deckName": "Due Today (Selected 1)",
+  "cardCount": 1,
+  "exportedAt": "2026-08-23T08:14:09.473Z",
+  "cards": [
+    {
+      "verticalAlign": "center",
+      "cardName": "Biology: DNA/Rna",
+      "updatedAt": {
+        "type": "firestore/timestamp/1.0",
+        "seconds": 1787398311,
+        "nanoseconds": 158000000
+      },
+      "frontText": "",
+      "textSize": 24,
+      "backText": "",
+      "aspectRatio": 1.4754098360655739,
+      "textColor": "#ffffff",
+      "frontImageFile": "images/card_1_front.jpg",
+      "backImageFile": "images/card_1_back.jpg"
+    }
+  ]
+}

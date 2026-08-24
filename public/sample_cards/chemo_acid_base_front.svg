@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <linearGradient id="phGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ef4444"/>
+      <stop offset="25%" stop-color="#f97316"/>
+      <stop offset="50%" stop-color="#eab308"/>
+      <stop offset="75%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="#0f172a" rx="16"/>
+
+  <rect x="50" y="30" width="380" height="55" rx="12" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="70" y="66" fill="#f8fafc" font-family="sans-serif" font-size="22" font-weight="900" letter-spacing="1">CHEMISTRY: THE pH SCALE</text>
+
+  <!-- pH Scale Bar -->
+  <rect x="60" y="160" width="680" height="80" rx="16" fill="url(#phGradient)" stroke="#64748b" stroke-width="2"/>
+
+  <!-- pH Numbers -->
+  <text x="70" y="210" fill="#ffffff" font-family="sans-serif" font-size="28" font-weight="900">0</text>
+  <text x="390" y="210" fill="#ffffff" font-family="sans-serif" font-size="28" font-weight="900">7</text>
+  <text x="710" y="210" fill="#ffffff" font-family="sans-serif" font-size="28" font-weight="900">14</text>
+
+  <text x="80" y="290" fill="#f87171" font-family="sans-serif" font-size="20" font-weight="bold">ACIDIC (High H⁺)</text>
+  <text x="360" y="290" fill="#facc15" font-family="sans-serif" font-size="20" font-weight="bold">NEUTRAL</text>
+  <text x="560" y="290" fill="#a78bfa" font-family="sans-serif" font-size="20" font-weight="bold">BASIC / ALKALINE (High OH⁻)</text>
+</svg>

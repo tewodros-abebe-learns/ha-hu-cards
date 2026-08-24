@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Global Default Security Net
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Primitive Helper Functions
+    // ===============================================================
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // ===============================================================
+    // Schema Validation Helpers
+    // ===============================================================
+    function isValidFolder(data) {
+      return data.keys().hasAll(['name', 'level', 'ownerId']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.level is number && data.level >= 1 && data.level <= 3 &&
+             (!('parentId' in data) || data.parentId == null || (data.parentId is string && isValidId(data.parentId))) &&
+             data.ownerId == request.auth.uid;
+    }
+
+    function isValidFlashcard(data) {
+      return data.keys().hasAll(['unitId', 'ownerId']) &&
+             data.unitId is string && isValidId(data.unitId) &&
+             data.ownerId == request.auth.uid &&
+             (!('frontText' in data) || (data.frontText is string && data.frontText.size() <= 2000)) &&
+             (!('backText' in data) || (data.backText is string && data.backText.size() <= 2000)) &&
+             (!('cardName' in data) || (data.cardName is string && data.cardName.size() <= 200)) &&
+             (!('frontImageUrl' in data) || (data.frontImageUrl is string && data.frontImageUrl.size() <= 500000)) &&
+             (!('backImageUrl' in data) || (data.backImageUrl is string && data.backImageUrl.size() <= 500000)) &&
+             (!('aspectRatio' in data) || (data.aspectRatio is number && data.aspectRatio > 0 && data.aspectRatio <= 10)) &&
+             (!('textSize' in data) || (data.textSize is number && data.textSize >= 8 && data.textSize <= 120)) &&
+             (!('textColor' in data) || (data.textColor is string && data.textColor.size() <= 32)) &&
+             (!('verticalAlign' in data) || (data.verticalAlign in ['top', 'center', 'bottom'])) &&
+             (!('easeFactor' in data) || (data.easeFactor is number && data.easeFactor >= 1.0 && data.easeFactor <= 10.0)) &&
+             (!('interval' in data) || (data.interval is number && data.interval >= 0 && data.interval <= 100000)) &&
+             (!('nextReview' in data) || (data.nextReview is number && data.nextReview >= 0));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /folders/{folderId} {
+      allow get: if isAuthenticated() && isValidId(folderId) && (resource == null || resource.data.ownerId == request.auth.uid);
+      allow list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidId(folderId) && isValidFolder(incoming());
+      allow update: if isAuthenticated() && isValidId(folderId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFolder(incoming());
+      allow delete: if isAuthenticated() && isValidId(folderId) && isDocOwner();
+    }
+
+    match /flashcards/{cardId} {
+      allow get: if isAuthenticated() && isValidId(cardId) && (resource == null || resource.data.ownerId == request.auth.uid);
+      allow list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidId(cardId) && isValidFlashcard(incoming());
+      allow update: if isAuthenticated() && isValidId(cardId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFlashcard(incoming());
+      allow delete: if isAuthenticated() && isValidId(cardId) && isDocOwner();
+    }
+  }
+}
+
+

@@ -1,0 +1,25 @@
+{
+  "type": "zencards-deck",
+  "version": 2,
+  "deckName": "Due Today (Selected 1)",
+  "cardCount": 1,
+  "exportedAt": "2026-08-23T08:14:15.471Z",
+  "cards": [
+    {
+      "updatedAt": {
+        "type": "firestore/timestamp/1.0",
+        "nanoseconds": 118000000,
+        "seconds": 1787399438
+      },
+      "frontText": "",
+      "cardName": "Biology : Heart",
+      "backText": "",
+      "textSize": 24,
+      "aspectRatio": 1.4931143334280688,
+      "textColor": "#ffffff",
+      "verticalAlign": "center",
+      "frontImageFile": "images/card_1_front.jpg",
+      "backImageFile": "images/card_1_back.jpg"
+    }
+  ]
+}

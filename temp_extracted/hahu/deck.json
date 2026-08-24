@@ -1,0 +1,23 @@
+{
+  "type": "zencards-deck",
+  "version": 2,
+  "deckName": "Physics I",
+  "cardCount": 1,
+  "exportedAt": "2026-08-23T13:17:05.683Z",
+  "cards": [
+    {
+      "updatedAt": {
+        "type": "firestore/timestamp/1.0",
+        "seconds": 1787491353,
+        "nanoseconds": 800000000
+      },
+      "textColor": "#ffffff",
+      "textSize": 24,
+      "aspectRatio": 1.8333333333333333,
+      "cardName": "Physics I",
+      "verticalAlign": "center",
+      "frontImageFile": "images/card_1_front.jpg",
+      "backImageFile": "images/card_1_back.jpg"
+    }
+  ]
+}

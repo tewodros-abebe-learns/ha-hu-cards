@@ -1,0 +1,25 @@
+{
+  "type": "zencards-deck",
+  "version": 2,
+  "deckName": "Due Today (Selected 1)",
+  "cardCount": 1,
+  "exportedAt": "2026-08-23T08:14:26.107Z",
+  "cards": [
+    {
+      "backText": "",
+      "textSize": 24,
+      "textColor": "#ffffff",
+      "verticalAlign": "center",
+      "aspectRatio": 1.8333333333333333,
+      "frontText": "",
+      "updatedAt": {
+        "nanoseconds": 109000000,
+        "type": "firestore/timestamp/1.0",
+        "seconds": 1787399989
+      },
+      "cardName": "Chemo : Acid Vs Base",
+      "frontImageFile": "images/card_1_front.jpg",
+      "backImageFile": "images/card_1_back.jpg"
+    }
+  ]
+}

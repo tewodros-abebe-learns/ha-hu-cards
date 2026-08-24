@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <rect width="800" height="450" fill="#18181b" rx="16"/>
+  
+  <!-- Left Side (Deoxygenated - Blue) -->
+  <path d="M 320 120 Q 260 180 280 280 Q 320 380 400 400 Z" fill="#1d4ed8" opacity="0.85" stroke="#3b82f6" stroke-width="3"/>
+  <!-- Right Side (Oxygenated - Red) -->
+  <path d="M 480 120 Q 540 180 520 280 Q 480 380 400 400 Z" fill="#b91c1c" opacity="0.85" stroke="#ef4444" stroke-width="3"/>
+
+  <!-- Labels -->
+  <text x="210" y="160" fill="#60a5fa" font-family="sans-serif" font-size="18" font-weight="bold">Right Atrium</text>
+  <line x1="230" y1="170" x2="330" y2="180" stroke="#60a5fa" stroke-width="2"/>
+
+  <text x="180" y="300" fill="#60a5fa" font-family="sans-serif" font-size="18" font-weight="bold">Right Ventricle</text>
+  <line x1="210" y1="310" x2="340" y2="300" stroke="#60a5fa" stroke-width="2"/>
+
+  <text x="510" y="160" fill="#f87171" font-family="sans-serif" font-size="18" font-weight="bold">Left Atrium</text>
+  <line x1="510" y1="170" x2="450" y2="180" stroke="#f87171" stroke-width="2"/>
+
+  <text x="530" y="300" fill="#f87171" font-family="sans-serif" font-size="18" font-weight="bold">Left Ventricle</text>
+  <line x1="530" y1="310" x2="450" y2="300" stroke="#f87171" stroke-width="2"/>
+
+  <rect x="50" y="30" width="380" height="55" rx="12" fill="#27272a" stroke="#52525b" stroke-width="1.5"/>
+  <text x="70" y="66" fill="#f4f4f5" font-family="sans-serif" font-size="22" font-weight="900" letter-spacing="1">ANATOMY OF THE HEART</text>
+</svg>

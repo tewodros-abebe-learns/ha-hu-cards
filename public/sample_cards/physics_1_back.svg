@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <rect width="800" height="450" fill="#090d16" rx="16"/>
+  <rect x="30" y="30" width="740" height="390" fill="#111827" rx="16" stroke="#1f2937" stroke-width="2"/>
+  
+  <text x="60" y="75" fill="#38bdf8" font-family="sans-serif" font-size="26" font-weight="900" letter-spacing="1">NEWTON'S LAWS OF MOTION</text>
+  
+  <!-- Law 1 -->
+  <rect x="60" y="100" width="680" height="85" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="80" y="130" fill="#f43f5e" font-family="sans-serif" font-size="18" font-weight="bold">1st Law (Inertia):</text>
+  <text x="80" y="160" fill="#e2e8f0" font-family="sans-serif" font-size="16">An object remains at rest or constant velocity unless acted upon by a net force.</text>
+  
+  <!-- Law 2 -->
+  <rect x="60" y="200" width="680" height="85" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="80" y="230" fill="#38bdf8" font-family="sans-serif" font-size="18" font-weight="bold">2nd Law (Force &amp; Acceleration):</text>
+  <text x="80" y="260" fill="#e2e8f0" font-family="sans-serif" font-size="16">Acceleration is proportional to net force: F = m · a  |  a = Δv / Δt</text>
+  
+  <!-- Law 3 -->
+  <rect x="60" y="300" width="680" height="85" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="80" y="330" fill="#a855f7" font-family="sans-serif" font-size="18" font-weight="bold">3rd Law (Action &amp; Reaction):</text>
+  <text x="80" y="360" fill="#e2e8f0" font-family="sans-serif" font-size="16">For every action force, there is an equal and opposite reaction force: F_A = -F_B</text>
+</svg>
