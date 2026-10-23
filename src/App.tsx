@@ -61,6 +61,7 @@ import 'react-image-crop/dist/ReactCrop.css';
 import { getCroppedImg, getCropBounds } from './cropUtils';
 import { translations } from './translations';
 import { SAMPLE_CARD_IMAGES, resolveCardImageUrl, getSampleCardsData } from './sampleCardsData';
+import { FlipCardStage } from './components/StudyCardFace';
 
 export type Language = 'English' | 'Amharic';
 
@@ -1121,17 +1122,6 @@ const StudySettingsModal: React.FC<{
 
 type SessionState = 'COUNTDOWN' | 'ALARM' | 'REVEAL_DELAY' | 'READY_TO_REVEAL' | 'ANSWER_SHOWN' | 'SESSION_COMPLETE';
 
-const StudyCardFace = React.memo(({ card, side, hidden }: { card: FlashcardData; side: 'front' | 'back'; hidden: boolean }) => {
-  const image = side === 'front' ? card.frontImageUrl : card.backImageUrl;
-  const text = side === 'front' ? card.frontText : card.backText;
-  return <div aria-hidden={hidden} className={`${side === 'front' ? 'relative w-full min-h-[220px] sm:min-h-[300px]' : 'absolute inset-0 w-full h-full [transform:rotateY(180deg)]'} [backface-visibility:hidden] [-webkit-backface-visibility:hidden] rounded-xl overflow-hidden shadow-xl border-2 border-neutral-700 bg-neutral-900`} style={side === 'front' ? { aspectRatio: card.aspectRatio || 1, maxHeight: '65vh' } : undefined}>
-    {image && <img src={image} alt={side} className="absolute inset-0 w-full h-full object-contain" referrerPolicy="no-referrer" />}
-    {text && <div className={`absolute inset-0 overflow-y-auto p-6 flex flex-col ${image ? 'bg-black/30' : ''}`}>
-      <p className="font-extrabold text-center drop-shadow-md tracking-tight whitespace-pre-wrap break-words shrink-0" style={{ fontSize: card.textSize || 24, color: card.textColor || '#ffffff', overflowWrap: 'anywhere', marginTop: card.verticalAlign === 'top' ? 0 : 'auto', marginBottom: card.verticalAlign === 'bottom' ? 0 : 'auto' }}>{text}</p>
-    </div>}
-  </div>;
-});
-
 const SingleCardStudySession: React.FC<{
   card: FlashcardData;
   duration: number;
@@ -1638,15 +1628,8 @@ const SingleCardStudySession: React.FC<{
               </button>
             </motion.div>
           ) : (
-            <motion.div
-              key="card"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className={`relative w-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[-webkit-transform:rotateY(180deg)] [transform:rotateY(180deg)]' : ''}`}
-            >
-              <StudyCardFace card={card} side="front" hidden={isFlipped} />
-              <StudyCardFace card={card} side="back" hidden={!isFlipped} />
+            <motion.div key="card" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative w-full">
+              <FlipCardStage card={card} flipped={isFlipped} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -4174,6 +4157,18 @@ const DashboardLayout = () => {
       } else optionalStorage.removeItem(key);
     } catch { optionalStorage.removeItem(key); }
   };
+
+  // Lock-In continues by itself after a refresh instead of waiting behind a
+  // resume button. Explicitly ending a session clears this record, so this only
+  // restores sessions the learner never ended.
+  const autoResumed = useRef(false);
+  useEffect(() => {
+    if (autoResumed.current || !user || studyModeCard || sessionParams || dashboardEditingCard || isStudySettingsOpen || !allCards.length) return;
+    const key = `interrupted_lockin_session_${user.uid}`;
+    if (!optionalStorage.getItem(key)) return;
+    autoResumed.current = true;
+    handleResumeSession();
+  }, [user, allCards, studyModeCard, sessionParams, dashboardEditingCard, isStudySettingsOpen]);
 
   const selectedUnit = useMemo(() => {
     if (selectedUnitId === 'global_today') return { id: 'global_today', name: translations[language].dueToday, level: 3, parentId: null } as FolderData;
