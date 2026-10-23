@@ -1,21 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig} from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+export default defineConfig(() => {
   return {
     plugins: [
       react(), 
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+        registerType: 'prompt',
+        includeAssets: ['icon.svg', 'notifications-sw.js'],
+        workbox: { importScripts: ['/notifications-sw.js'] },
         manifest: {
-          name: 'Exam Platform',
-          short_name: 'ExamApp',
+          name: 'HaHu Cards',
+          short_name: 'HaHu Cards',
           description: 'A powerful flashcard and exam study application',
           theme_color: '#171717',
           background_color: '#0a0a0a',
@@ -31,9 +31,6 @@ export default defineConfig(({mode}) => {
         }
       })
     ],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     build: {
       rollupOptions: {
         output: {
@@ -52,6 +49,7 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
+      allowedHosts: ['.e2b.app'],
       headers: {
       },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

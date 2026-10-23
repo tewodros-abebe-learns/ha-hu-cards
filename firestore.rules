@@ -34,11 +34,43 @@ service cloud.firestore {
     // ===============================================================
     // Schema Validation Helpers
     // ===============================================================
+    function activeOwned(data) {
+      return data.ownerId == request.auth.uid && (!('deleting' in data) || data.deleting == false);
+    }
+
+    // Folder depth is capped at three; check the entire ancestor chain.
+    function activeGrandparent(id) {
+      return activeOwned(getAfter(/databases/$(database)/documents/folders/$(id)).data);
+    }
+    function activeParent(id) {
+      let parent = getAfter(/databases/$(database)/documents/folders/$(id)).data;
+      return activeOwned(parent) && (!('parentId' in parent) || parent.parentId == null || activeGrandparent(parent.parentId));
+    }
+    function ownsFolder(id) {
+      let folder = getAfter(/databases/$(database)/documents/folders/$(id)).data;
+      return isValidId(id) && activeOwned(folder) &&
+        (!('parentId' in folder) || folder.parentId == null || activeParent(folder.parentId));
+    }
+    function validImage(value) {
+      return value is string && value.size() <= 500000 && !value.matches('.*[\\x00-\\x20\\x7f\\\\].*') &&
+        (value == '' || value.matches('^(physics_1|biology_dna|biology_heart|chemo_acid_base)_(front|back)$') ||
+         value.matches('(?i)^data:image/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$') ||
+         value.matches('^/[^/].*$') || value.matches('^https?://[^/@?#]+([/?#].*)?$'));
+    }
+
+    function validParent(data, folderId) {
+      return ((!('parentId' in data) || data.parentId == null) && data.level == 1) ||
+        ('parentId' in data && data.parentId != null && data.parentId != folderId && ownsFolder(data.parentId) &&
+         getAfter(/databases/$(database)/documents/folders/$(data.parentId)).data.level == data.level - 1);
+    }
+
     function isValidFolder(data) {
       return data.keys().hasAll(['name', 'level', 'ownerId']) &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             data.level is number && data.level >= 1 && data.level <= 3 &&
+             data.level is int && data.level >= 1 && data.level <= 3 &&
              (!('parentId' in data) || data.parentId == null || (data.parentId is string && isValidId(data.parentId))) &&
+             (!('isSample' in data) || data.isSample is bool) &&
+             (!('deleting' in data) || data.deleting is bool) &&
              data.ownerId == request.auth.uid;
     }
 
@@ -49,15 +81,15 @@ service cloud.firestore {
              (!('frontText' in data) || (data.frontText is string && data.frontText.size() <= 2000)) &&
              (!('backText' in data) || (data.backText is string && data.backText.size() <= 2000)) &&
              (!('cardName' in data) || (data.cardName is string && data.cardName.size() <= 200)) &&
-             (!('frontImageUrl' in data) || (data.frontImageUrl is string && data.frontImageUrl.size() <= 500000)) &&
-             (!('backImageUrl' in data) || (data.backImageUrl is string && data.backImageUrl.size() <= 500000)) &&
-             (!('aspectRatio' in data) || (data.aspectRatio is number && data.aspectRatio > 0 && data.aspectRatio <= 10)) &&
+             (!('frontImageUrl' in data) || validImage(data.frontImageUrl)) &&
+             (!('backImageUrl' in data) || validImage(data.backImageUrl)) &&
+             (!('aspectRatio' in data) || (data.aspectRatio is number && data.aspectRatio >= 0.001 && data.aspectRatio <= 10)) &&
              (!('textSize' in data) || (data.textSize is number && data.textSize >= 8 && data.textSize <= 120)) &&
              (!('textColor' in data) || (data.textColor is string && data.textColor.size() <= 32)) &&
              (!('verticalAlign' in data) || (data.verticalAlign in ['top', 'center', 'bottom'])) &&
              (!('easeFactor' in data) || (data.easeFactor is number && data.easeFactor >= 1.0 && data.easeFactor <= 10.0)) &&
              (!('interval' in data) || (data.interval is number && data.interval >= 0 && data.interval <= 100000)) &&
-             (!('nextReview' in data) || (data.nextReview is number && data.nextReview >= 0));
+             (!('nextReview' in data) || (data.nextReview is number && data.nextReview >= 0 && data.nextReview <= 9007199254740991));
     }
 
     // ===============================================================
@@ -67,16 +99,18 @@ service cloud.firestore {
     match /folders/{folderId} {
       allow get: if isAuthenticated() && isValidId(folderId) && (resource == null || resource.data.ownerId == request.auth.uid);
       allow list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
-      allow create: if isAuthenticated() && isValidId(folderId) && isValidFolder(incoming());
-      allow update: if isAuthenticated() && isValidId(folderId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFolder(incoming());
-      allow delete: if isAuthenticated() && isValidId(folderId) && isDocOwner();
+      allow create: if isAuthenticated() && isValidId(folderId) && isValidFolder(incoming()) && validParent(incoming(), folderId) && incoming().keys().hasOnly(['name', 'level', 'ownerId', 'parentId', 'createdAt', 'updatedAt', 'isSample']);
+      allow update: if isAuthenticated() && isValidId(folderId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFolder(incoming()) &&
+        ((incoming().diff(existing()).affectedKeys().hasOnly(['deleting']) && ('deleting' in incoming()) && incoming().deleting == true) ||
+         (ownsFolder(folderId) && validParent(incoming(), folderId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt'])));
+      allow delete: if isAuthenticated() && isValidId(folderId) && isDocOwner() && existing().deleting == true;
     }
 
     match /flashcards/{cardId} {
       allow get: if isAuthenticated() && isValidId(cardId) && (resource == null || resource.data.ownerId == request.auth.uid);
       allow list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
-      allow create: if isAuthenticated() && isValidId(cardId) && isValidFlashcard(incoming());
-      allow update: if isAuthenticated() && isValidId(cardId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFlashcard(incoming());
+      allow create: if isAuthenticated() && isValidId(cardId) && isValidFlashcard(incoming()) && ownsFolder(incoming().unitId) && incoming().keys().hasOnly(['unitId', 'ownerId', 'cardName', 'frontText', 'backText', 'frontImageUrl', 'backImageUrl', 'aspectRatio', 'textSize', 'textColor', 'verticalAlign', 'easeFactor', 'interval', 'nextReview', 'createdAt', 'updatedAt']);
+      allow update: if isAuthenticated() && isValidId(cardId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFlashcard(incoming()) && ownsFolder(incoming().unitId) && (!exists(/databases/$(database)/documents/folders/$(existing().unitId)) || ownsFolder(existing().unitId)) && incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'cardName', 'frontText', 'backText', 'frontImageUrl', 'backImageUrl', 'aspectRatio', 'textSize', 'textColor', 'verticalAlign', 'easeFactor', 'interval', 'nextReview', 'updatedAt']);
       allow delete: if isAuthenticated() && isValidId(cardId) && isDocOwner();
     }
   }

@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+test-results/
+playwright-report/
+
+# Firebase emulator artifacts
+*-debug.log
+.firebase/
