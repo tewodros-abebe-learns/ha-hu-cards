@@ -186,8 +186,9 @@ test('Anki enforces the countdown, advances the queue and guards duplicate saves
   await expect(reveal).toBeEnabled({ timeout: 5000 });
   await reveal.click();
   await page.getByRole('button', { name: /^Remembered/ }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
-  await expect(page.getByText('No cards ready in this queue', {exact:true})).toBeVisible();
+  await expect(page.getByText('All done for now', {exact:true})).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].review.memory.reps)).toBe(1);
+  await page.getByRole('button',{name:'Review options',exact:true}).click();
   await page.getByRole('button', {name:'Undo last rating',exact:true}).click();
   await expect(reveal).toBeDisabled();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].review.memory.reps)).toBe(0);
@@ -359,4 +360,37 @@ test('note-only unsaved edits still require an explicit discard', async ({page})
   await expect(page.getByRole('alertdialog',{name:'Unsaved changes'})).toBeVisible();
   await page.getByRole('button',{name:'Keep editing',exact:true}).click();
   await expect(page.getByRole('textbox',{name:'Card note (optional)',exact:true})).toHaveValue('Remember for exam');
+});
+
+test('Lock-In keeps running across a refresh without a manual resume', async ({ page }) => {
+  await page.getByRole('button', { name: 'Study Due card', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Study Mode Settings', exact: true });
+  await settings.getByRole('button', { name: /^Lock-In/ }).click();
+  await settings.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Quit study session', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!localStorage.getItem('interrupted_lockin_session_guest_ux'))).toBe(true);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Quit study session', exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText(/Cycle 1 \/ 1/)).toBeVisible();
+  expect(await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('lockin_session_guest_ux_due')!);
+    return saved.state;
+  })).toBe('COUNTDOWN');
+});
+
+test('a deck imported through the app opens correctly in Spaced Review', async ({ page }) => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+  const deck = { deckName: 'Image deck', cards: [{ cardName: 'Imported diagram', frontText: '', backText: '', frontImageUrl: png, backImageUrl: png, aspectRatio: 1.5 }] };
+  await page.locator('input[type=file]').first().setInputFiles({ name: 'images.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(deck)) });
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards.length)).toBe(3);
+  await page.evaluate(() => {
+    const key = 'hahu_library_guest_ux'; const data = JSON.parse(localStorage.getItem(key)!);
+    data.cards.forEach((card: any) => { if (!String(card.id).startsWith('import_')) card.nextReview = Date.now() + 86400000; });
+    localStorage.setItem(key, JSON.stringify(data));
+    window.dispatchEvent(new CustomEvent('hahu_cards_update_guest_ux'));
+  });
+  await page.getByRole('button', { name: 'Start / resume reviews', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Imported diagram', exact: true })).toBeVisible();
+  await expect(page.locator('[data-card-face="front"] img')).toBeVisible();
+  await expect(page.locator('[data-card-face="front"] img')).toHaveAttribute('src', png);
 });

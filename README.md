@@ -299,3 +299,25 @@ smoke test after deploying the rules. No production deployment was performed her
   without a prior review. Legacy zero due dates and oversized intervals migrate
   safely and can still be undone.
 - An active learning step is never suppressed by related-card spacing.
+
+
+### Study screen and session continuity
+
+- Spaced Review now shares the same distraction-free stage as Speed Recall:
+  close and fullscreen sit in the corners, the card is centred, the thinking
+  timer is above it, and **Reveal Answer** unlocks only when the timer ends.
+  Ratings appear on the same stage after the reveal. Scheduling details moved
+  behind one options button instead of filling the study screen.
+- All three modes use one `FlipCardStage`. The card turns around smoothly, the
+  back face is pre-rotated so the answer never appears mirrored, and the answer
+  is not rendered in the DOM (or exposed to a screen reader) before reveal.
+  Imported images are resolved through the same helper as the card list, so
+  sample-alias and data-URL images keep their aspect ratio in review.
+- Mode help is limited to a purpose, a one-line explanation, a short "how",
+  and a single example. Long descriptions, algorithm names and English
+  jargon such as "Reveal Delay" were removed from the primary help copy.
+- Lock-In sessions resume automatically after a refresh or reopened tab. The
+  saved record already carries the state, remaining time, reveal delay, cycle
+  count and timer anchor, so reloading continues the same session instead of
+  asking the learner to find and press Resume. Ending a session clears the
+  record, and a newer tab still supersedes an older one.

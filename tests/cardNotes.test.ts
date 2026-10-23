@@ -32,3 +32,13 @@ test('plain-language labels preserve the existing four rating identifiers', () =
   assert.equal(translations.Amharic.again,'ረሳሁ');
   assert.ok(!translations.English.ankiUsage.includes('without forgetting'));
 });
+
+test('study-mode help stays short and free of scheduler jargon', () => {
+  for (const language of ['English','Amharic'] as const) {
+    const copy = translations[language] as Record<string, any>;
+    for (const key of ['speedRecallHelpDesc','speedRecallUsage','speedRecallFeatures','speedRecallExample','ankiHelpDesc','ankiUsage','ankiFeatures','ankiExample','lockinHelpDesc','lockinUsage','lockinFeatures','lockinExample']) {
+      assert.ok(copy[key].length <= 90, `${language}.${key} should stay concise`);
+      assert.doesNotMatch(copy[key], /FSRS|SM-2|Pomodoro|Reveal Delay|algorithm/i, `${language}.${key} should avoid jargon`);
+    }
+  }
+});
