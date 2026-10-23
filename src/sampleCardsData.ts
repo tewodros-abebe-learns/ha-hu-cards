@@ -10,16 +10,13 @@ export const SAMPLE_CARD_IMAGES = {
 };
 
 export function resolveCardImageUrl(url: string | undefined): string {
-  if (!url) return "";
-  if (url.startsWith("data:image/")) return url;
-  if (url.includes("physics_1_front")) return SAMPLE_CARD_IMAGES.physics_1_front;
-  if (url.includes("physics_1_back")) return SAMPLE_CARD_IMAGES.physics_1_back;
-  if (url.includes("biology_dna_front")) return SAMPLE_CARD_IMAGES.biology_dna_front;
-  if (url.includes("biology_dna_back")) return SAMPLE_CARD_IMAGES.biology_dna_back;
-  if (url.includes("biology_heart_front")) return SAMPLE_CARD_IMAGES.biology_heart_front;
-  if (url.includes("biology_heart_back")) return SAMPLE_CARD_IMAGES.biology_heart_back;
-  if (url.includes("chemo_acid_base_front")) return SAMPLE_CARD_IMAGES.chemo_acid_base_front;
-  if (url.includes("chemo_acid_base_back")) return SAMPLE_CARD_IMAGES.chemo_acid_base_back;
+  if (typeof url !== 'string' || !url) return '';
+  // Resolve known aliases and exact legacy paths only; never replace arbitrary URLs
+  // merely because their query string or filename contains a sample's name.
+  const alias = url.replace(/^\/sample_cards\//, '').replace(/\.(jpg|svg)$/, '');
+  if (Object.prototype.hasOwnProperty.call(SAMPLE_CARD_IMAGES, alias)) {
+    return SAMPLE_CARD_IMAGES[alias as keyof typeof SAMPLE_CARD_IMAGES];
+  }
   return url;
 }
 

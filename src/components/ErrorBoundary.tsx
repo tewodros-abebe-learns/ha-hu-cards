@@ -1,3 +1,4 @@
+import { optionalStorage } from '../browserStorage';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 
@@ -33,12 +34,10 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleClearStorageAndReload = () => {
-    try {
-      sessionStorage.clear();
-      localStorage.removeItem('zencards_last_unit');
-    } catch {
-      // ignore
-    }
+    // Reset view preferences only. Never erase a guest library or account data.
+    optionalStorage.removeItem('hahu_language');
+    optionalStorage.removeItem('hahu_theme');
+    window.location.hash = '/dashboard';
     window.location.reload();
   };
 
@@ -53,7 +52,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
             <h1 className="text-xl sm:text-2xl font-bold mb-2">Something went wrong</h1>
             <p className="text-sm text-slate-400 mb-6">
-              An unexpected error occurred while rendering this view. Your saved flashcards and folders are safe in your database.
+              An unexpected error occurred while rendering this view. Reloading does not erase saved libraries; unsaved changes may be lost.
             </p>
 
             {this.state.error && (

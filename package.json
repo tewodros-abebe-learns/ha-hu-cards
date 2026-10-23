@@ -8,14 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:browser": "playwright test",
+    "test:rules": "npx --yes firebase-tools@15.34.1 emulators:exec --only firestore --project demo-hahu-cards --config firebase.emulator.json \"tsx --test tests/firestore/*.test.ts\""
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
-    "dotenv": "^17.2.3",
-    "express": "^4.21.2",
     "firebase": "^12.11.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
@@ -27,7 +27,8 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -37,5 +38,11 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^1.2.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.6",
+    "tsx": {
+      "esbuild": "^0.28.2"
+    }
   }
 }

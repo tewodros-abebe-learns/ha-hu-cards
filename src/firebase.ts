@@ -1,7 +1,10 @@
 import { initializeApp, FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithCredential, signInAnonymously, signOut, onAuthStateChanged, User, Auth } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithCredential, linkWithCredential, linkWithPopup, signInAnonymously, signOut, onAuthStateChanged, User, Auth } from 'firebase/auth';
 import { 
-  getFirestore, 
+  getFirestore,
+  runTransaction,
+  getDoc,
+  writeBatch,
   initializeFirestore,
   collection, 
   doc, 
@@ -85,14 +88,19 @@ export async function testFirestoreConnection(): Promise<boolean> {
       console.warn("Firestore connection check: client is offline or reconnecting.");
       return false;
     }
-    return true;
+    return false;
   }
 }
 
-export { 
+export {
+  runTransaction,
+  getDoc,
+  writeBatch,
   GoogleAuthProvider, 
   signInWithPopup, 
-  signInWithCredential, 
+  signInWithCredential,
+  linkWithCredential,
+  linkWithPopup,
   signInAnonymously, 
   signOut, 
   onAuthStateChanged, 

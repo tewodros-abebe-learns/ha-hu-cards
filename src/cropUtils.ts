@@ -1,78 +1,35 @@
+import { canvasBlob } from './imageProcessing';
 import { type Crop } from 'react-image-crop';
 
-export async function getCroppedImg(
-  image: HTMLImageElement,
-  crop: Crop,
-  fileName: string
-): Promise<File> {
-  const canvas = document.createElement('canvas');
-
-  if (!image.naturalWidth || !image.naturalHeight) {
-    throw new Error('Image dimensions are invalid');
-  }
-
-  // Convert crop to percentages to be immune to DOM fractional pixel scaling
-  let percentX = 0;
-  let percentY = 0;
-  let percentWidth = 1;
-  let percentHeight = 1;
-  
-  if (crop.unit === '%') {
-    percentX = Math.max(0, (crop.x || 0) / 100);
-    percentY = Math.max(0, (crop.y || 0) / 100);
-    percentWidth = Math.min(1, Math.max(0.01, (crop.width || 100) / 100));
-    percentHeight = Math.min(1, Math.max(0.01, (crop.height || 100) / 100));
-  } else {
-    const renderedWidth = image.width || image.naturalWidth;
-    const renderedHeight = image.height || image.naturalHeight;
-    percentX = Math.max(0, (crop.x || 0) / renderedWidth);
-    percentY = Math.max(0, (crop.y || 0) / renderedHeight);
-    percentWidth = Math.min(1, Math.max(0.01, (crop.width || renderedWidth) / renderedWidth));
-    percentHeight = Math.min(1, Math.max(0.01, (crop.height || renderedHeight) / renderedHeight));
-  }
-
-  // Calculate the actual dimensions on the natural image
-  const targetX = Math.max(0, Math.floor(percentX * image.naturalWidth));
-  const targetY = Math.max(0, Math.floor(percentY * image.naturalHeight));
-  const targetWidth = Math.max(10, Math.min(image.naturalWidth - targetX, Math.floor(percentWidth * image.naturalWidth)));
-  const targetHeight = Math.max(10, Math.min(image.naturalHeight - targetY, Math.floor(percentHeight * image.naturalHeight)));
-
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-  
-  const ctx = canvas.getContext('2d');
-
-  if (!ctx) {
-    throw new Error('Canvas 2D rendering context unavailable');
-  }
-
-  ctx.imageSmoothingQuality = 'high';
-
-  ctx.drawImage(
-    image,
-    targetX,
-    targetY,
-    targetWidth,
-    targetHeight,
-    0,
-    0,
-    targetWidth,
-    targetHeight
-  );
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error('Canvas image conversion returned empty blob'));
-          return;
-        }
-        const file = new File([blob], fileName, { type: 'image/jpeg' });
-        resolve(file);
-      },
-      'image/jpeg',
-      0.95
-    );
-  });
+export function getCropBounds(image: Pick<HTMLImageElement, 'naturalWidth' | 'naturalHeight' | 'width' | 'height'>, crop: Crop) {
+  const { naturalWidth: nw, naturalHeight: nh } = image;
+  if (!(nw > 0 && nh > 0) || ![crop.x, crop.y, crop.width, crop.height].every(Number.isFinite) || crop.width <= 0 || crop.height <= 0) throw new Error('Invalid crop dimensions');
+  const scaleX = crop.unit === '%' ? nw / 100 : nw / (image.width || nw);
+  const scaleY = crop.unit === '%' ? nh / 100 : nh / (image.height || nh);
+  const x = Math.max(0, Math.min(nw - 1, Math.floor(crop.x * scaleX)));
+  const y = Math.max(0, Math.min(nh - 1, Math.floor(crop.y * scaleY)));
+  const width = Math.max(1, Math.min(nw - x, Math.floor(crop.width * scaleX)));
+  const height = Math.max(1, Math.min(nh - y, Math.floor(crop.height * scaleY)));
+  return { x, y, width, height };
 }
 
+export async function getCroppedImg(image: HTMLImageElement, crop: Crop, fileName: string, signal?: AbortSignal): Promise<File> {
+  const bounds = getCropBounds(image, crop);
+  const canvas = document.createElement('canvas');
+  // Bound canvas allocation before compression, including very large phone photos.
+  const scale = Math.min(1, 800 / Math.max(bounds.width, bounds.height));
+  canvas.width = Math.max(1, Math.round(bounds.width * scale));
+  canvas.height = Math.max(1, Math.round(bounds.height * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D rendering context unavailable');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, canvas.width, canvas.height);
+  for (const quality of [0.82, 0.65, 0.45]) {
+    const blob = await canvasBlob(canvas, 'image/jpeg', quality, signal);
+    // Keep the final base64 representation within the storage/rule limit.
+    if (blob.size <= 374950) return new File([blob], fileName, { type: 'image/jpeg' });
+  }
+  throw new Error('Image is too detailed to save. Select a smaller crop.');
+}
