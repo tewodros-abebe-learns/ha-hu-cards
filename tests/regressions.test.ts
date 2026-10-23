@@ -184,6 +184,9 @@ test('successive reviews use the latest stored interval, not the opened card sna
   await reviewFlashcard(user, card, 'good');
   assert.equal(readLocalLibrary(user.uid).cards[0].interval,1);
   await reviewFlashcard(user, card, 'good');
+  assert.equal(readLocalLibrary(user.uid).cards[0].interval,1); // Early retries do not inflate the schedule.
+  await updateFlashcard(user, card, { nextReview: 0 });
+  await reviewFlashcard(user, card, 'good');
   assert.equal(readLocalLibrary(user.uid).cards[0].interval,3);
   assert.equal(calculateReview({easeFactor:NaN,interval:Infinity},'good',100).nextReview,86400100);
 });

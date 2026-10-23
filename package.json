@@ -24,6 +24,7 @@
     "react-dom": "^19.0.0",
     "react-image-crop": "^11.0.10",
     "react-router-dom": "^7.13.2",
+    "ts-fsrs": "5.2.3",
     "vite": "^6.2.0"
   },
   "devDependencies": {

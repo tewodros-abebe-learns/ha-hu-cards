@@ -1,9 +1,10 @@
+import { initialReview, revision, scheduleReview, snapshot, validateReviewData, validateScheduleSnapshot } from './reviewEngine';
 import { orphanReferences, recoverOrphans } from './libraryRecovery';
 import { assertExpectedFields, sampleFolderFields, migrationRecordId } from './dataIntegrity';
 import { parseImportJob, importFingerprint, pruneImportReceipts } from './importRecovery';
 import { parseImportDeckFile } from './deckArchive';
 import { protectedOperation, assertOperationIdentity } from './operationSafety';
-import { assertUnchangedCard } from './cardConflicts';
+import { assertUnchangedCard, cardContentVersion } from './cardConflicts';
 import { validateStoredCard, validateStoredFolders } from './storedData';
 import { calculateReview } from './studyUtils';
 import { validateCardUpdates } from './dataValidation';
@@ -230,7 +231,7 @@ export const subscribeFlashcards = (
         .filter(card => isGlobal || !unitId || card.unitId === unitId)
         .sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
       onData(data);
-      if (rejected.length) onError?.(new Error(`${rejected.length} invalid saved card(s) could not be displayed. The records have not been deleted. Contact support to recover them. IDs: ${rejected.slice(0, 5).join(', ')}`));
+      if (rejected.length) onError?.(Object.assign(new Error(`${rejected.length} invalid saved card(s) could not be displayed. The records have not been deleted. Contact support to recover them. IDs: ${rejected.slice(0, 5).join(', ')}`), { recoverable: true }));
       } catch (error) { onError?.(error); }
     },
     (error) => {
@@ -244,9 +245,16 @@ export const subscribeFlashcards = (
 async function requireFolder(user: User, folderId: string): Promise<FolderData> {
   if (!folderId || folderId.startsWith('global_')) throw new Error('Choose a real destination folder.');
   if (isGuestSession(user)) {
-    const folder = getLocalStorageFolders(user.uid).find(folder => folder.id === folderId);
+    const folders = getLocalStorageFolders(user.uid);
+    const folder = folders.find(folder => folder.id === folderId);
     if (!folder) throw new Error('The destination folder no longer exists.');
-    return folder;
+    let ancestor: FolderData | undefined = folder;
+    for (let depth = 0; depth < 3; depth++) {
+      if (!ancestor || ancestor.deleting) throw new Error('This folder or a parent is unavailable or being deleted. Recover the library or choose another destination.');
+      if (!ancestor.parentId) return folder;
+      ancestor = folders.find(candidate => candidate.id === ancestor!.parentId);
+    }
+    throw new Error('Invalid destination hierarchy.');
   }
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase DB not initialized');
@@ -697,22 +705,25 @@ async function migrateLocalGuestLibraryImpl(guestUid: string, user: User): Promi
   }
 }
 
-async function reviewFlashcardImpl(user: User, cardId: string, rating: 'hard' | 'good' | 'easy'): Promise<void> {
+async function reviewFlashcardImpl(user: User, cardId: string, rating: import('./studyUtils').ReviewRating): Promise<ReturnType<typeof calculateReview>> {
   if (isGuestSession(user)) {
     const library = readLocalLibrary(user.uid);
     const card = library.cards.find(card => card.id === cardId);
     if (!card) throw new Error('This card was deleted.');
-    writeLocalLibrary(user.uid, { ...library, cards: library.cards.map(c => c.id === cardId ? { ...c, ...calculateReview(card, rating) } : c) });
-    return;
+    const schedule = calculateReview(card, rating);
+    writeLocalLibrary(user.uid, { ...library, cards: library.cards.map(c => c.id === cardId ? { ...c, ...schedule } : c) });
+    return schedule;
   }
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase DB not initialized');
-  await runTransaction(db, async transaction => {
+  return runTransaction(db, async transaction => {
     assertCurrentAccount(user);
     const ref = doc(db, 'flashcards', cardId);
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists() || snapshot.data().ownerId !== user.uid) throw new Error('This card is no longer available.');
-    transaction.update(ref, { ...calculateReview(snapshot.data(), rating), updatedAt: serverTimestamp() });
+    const schedule = calculateReview(snapshot.data(), rating);
+    transaction.update(ref, { ...schedule, updatedAt: serverTimestamp() });
+    return schedule;
   });
 }
 
@@ -864,5 +875,61 @@ export async function recoverLocalOrphans(user: User): Promise<void> {
     try { localStorage.setItem(`hahu_repair_backup_${user.uid}`, JSON.stringify(before)); }
     catch { throw new Error('Could not preserve a recovery backup. Free browser storage and retry. The library is unchanged.'); }
     writeLocalLibrary(user.uid, after);
+  });
+}
+
+/** Review-only optimistic writes never replace editor content or move a card. */
+export type ReviewAction = { id: string; expected: string; at: number } & (
+  { kind: 'rate'; rating: number; content?: string } |
+  { kind: 'settings'; paused: boolean; group: string } |
+  { kind: 'undo'; before: import('./reviewEngine').ScheduleSnapshot }
+);
+export async function applyReviewAction(user: User, cardId: string, action: ReviewAction): Promise<import('./reviewEngine').ScheduleSnapshot> {
+  return protectedOperation(user.uid, isGuestSession(user), async () => {
+    assertCurrentAccount(user);
+    if (!action || !['rate','settings','undo'].includes(action.kind) || typeof action.expected !== 'string' || !action.expected.length || action.expected.length > 256 || typeof action.id !== 'string' || !/^[\w-]{1,128}$/.test(action.id) || !Number.isFinite(action.at) || action.at < 0 || action.at > 8e15) throw new Error('Invalid review operation.');
+    if (action.kind === 'undo') validateScheduleSnapshot(action.before);
+    if (action.kind === 'settings' && (typeof action.group !== 'string' || action.group.length > 80 || typeof action.paused !== 'boolean')) throw new Error('Invalid review settings.');
+    if (action.kind === 'rate' && (![1,2,3,4].includes(action.rating) || (action.content !== undefined && (typeof action.content !== 'string' || action.content.length > 128)))) throw new Error('Invalid review rating.');
+    const change = (card: FlashcardData) => {
+      if (card.review?.revision === action.id) return snapshot(card); // Acknowledgement lost: safe retry.
+      if (revision(card) !== action.expected) throw new Error('This card changed in another session. Reload the review before trying again.');
+      if (action.kind === 'rate') {
+        if (action.content && action.content !== cardContentVersion(card)) throw new Error('The question changed while you were studying. Reload it before rating.');
+        return scheduleReview(card, action.rating, action.id, action.at);
+      }
+      const previous = card.review || initialReview(card, action.at);
+      if (action.kind === 'settings') {
+        const review = { ...previous, revision: action.id, paused: action.paused, group: action.group.trim() };
+        validateReviewData(review);
+        return { review, nextReview: review.memory.due };
+      }
+      const before = validateCardUpdates(action.before as Record<string, unknown>);
+      const review = { ...(before.review || initialReview(before, action.at)), revision: action.id, history: [...previous.history, { at: action.at, rating: 0, id: action.id }].slice(-100) };
+      validateReviewData(review);
+      return { review, interval: before.interval || 0, nextReview: before.nextReview || 0, easeFactor: before.easeFactor || 2.5 };
+    };
+    if (isGuestSession(user)) {
+      const library = readLocalLibrary(user.uid);
+      const card = library.cards.find(c => c.id === cardId);
+      if (!card) throw new Error('This card was deleted.');
+      await requireFolder(user, card.unitId);
+      assertCurrentAccount(user);
+      const updates = change(card);
+      writeLocalLibrary(user.uid, { ...library, cards: library.cards.map(c => c.id === cardId ? { ...c, ...updates } : c) });
+      return snapshot({ ...card, ...updates });
+    }
+    const db = getFirebaseDb();
+    if (!db) throw new Error('Firebase DB not initialized');
+    return runTransaction(db, async tx => {
+      assertCurrentAccount(user);
+      const ref = doc(db, 'flashcards', cardId);
+      const saved = await tx.get(ref);
+      if (!saved.exists() || saved.data().ownerId !== user.uid) throw new Error('This card is no longer available.');
+      const card = validateStoredCard({ ...saved.data(), id: saved.id });
+      const updates = change(card);
+      tx.update(ref, { ...updates, updatedAt: serverTimestamp() });
+      return snapshot({ ...card, ...updates });
+    });
   });
 }

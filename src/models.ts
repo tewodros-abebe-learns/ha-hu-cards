@@ -41,6 +41,7 @@ export interface FlashcardData {
   id: string;
   unitId: string;
   cardName: string;
+  note?: string;
   frontText: string;
   backText: string;
   frontImageUrl: string;
@@ -51,7 +52,8 @@ export interface FlashcardData {
   textSize: number;
   textColor?: string;
   verticalAlign?: 'top' | 'center' | 'bottom';
-  // Anki fields
+  review?: import('./reviewEngine').ReviewData;
+  // Legacy schedule fields (kept for list filters and compatibility)
   easeFactor?: number;
   interval?: number;
   nextReview?: number;

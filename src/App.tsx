@@ -1,3 +1,5 @@
+import { ReviewHub } from './components/ReviewHub';
+import { ProfileAvatar } from './components/ProfileAvatar';
 import { orphanReferences } from './libraryRecovery';
 import { exportScope, folderIsDeleting } from './dataIntegrity';
 import { authErrorMessage } from './authErrors';
@@ -9,7 +11,7 @@ import { usePendingAction } from './hooks/usePendingAction';
 import { interactionCopy } from './interactionCopy';
 import { folderPath, visibleSelection } from './interactionUtils';
 import { optionalStorage } from './browserStorage';
-import { newerSession, clearOwnedRecovery, remainingSeconds, parseStoredSession, validSessionConfig, dateBoundaries as getDateBoundaries } from './studyUtils';
+import { calculateReview, formatReviewDelay, type ReviewRating, newerSession, clearOwnedRecovery, remainingSeconds, parseStoredSession, validSessionConfig, dateBoundaries as getDateBoundaries } from './studyUtils';
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore, Component } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import {
@@ -68,9 +70,6 @@ import {
   getFirebaseDb,
   getGoogleProvider,
   signInWithPopup,
-  signInWithCredential,
-  GoogleAuthProvider,
-  linkWithCredential,
   linkWithPopup,
   signOut,
   onAuthStateChanged,
@@ -87,7 +86,6 @@ import {
   addDoc,
   getDocs,
   signInAnonymously,
-  oAuthClientId,
   User
 } from './firebase';
 import {
@@ -264,7 +262,7 @@ function chooseImportRecovery(count: number, language: Language): 'resume' | 'co
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (credential?: string) => Promise<void>;
+  login: () => Promise<void>;
   loginAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -324,7 +322,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     return () => { unsubscribe(); window.removeEventListener('storage', syncGuest); };
   }, []);
 
-  const login = useCallback(async (credential?: string) => {
+  const login = useCallback(async () => {
     if (loginInProgress.current) return;
     const auth = getFirebaseAuth();
     if (!auth) throw new Error('Firebase Auth not initialized');
@@ -333,9 +331,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     loginInProgress.current = true; setAuthBusy(true);
     try {
       const anonymous = auth.currentUser?.isAnonymous ? auth.currentUser : null;
-      const result = credential
-        ? anonymous ? await linkWithCredential(anonymous, GoogleAuthProvider.credential(credential)) : await signInWithCredential(auth, GoogleAuthProvider.credential(credential))
-        : anonymous ? await linkWithPopup(anonymous, getGoogleProvider()) : await signInWithPopup(auth, getGoogleProvider());
+      const result = anonymous ? await linkWithPopup(anonymous, getGoogleProvider()) : await signInWithPopup(auth, getGoogleProvider());
       setOperationIdentity(result.user.uid);
       if (guestUid && confirm('Copy this device’s guest library to your Google account? The local backup will be kept.')) {
         setLoading(true);
@@ -580,7 +576,6 @@ const StudySettingsModal: React.FC<{
 
   const handleStart = () => {
     const totalSeconds = h * 3600 + m * 60 + s;
-    if (mode === 'anki') { onStart(0, 'anki'); return; }
     if (!Number.isFinite(totalSeconds) || totalSeconds <= 0 || totalSeconds > 86400) return;
     if (mode === 'lockin' && !validSessionConfig({ cycles, revealDelay: rdM * 60 + rdS, notifications })) return;
     if (totalSeconds > 0) {
@@ -740,7 +735,7 @@ const StudySettingsModal: React.FC<{
                     </div>
                     <div>
                       <h4 className="font-extrabold text-sm text-emerald-500">
-                        {t.ankiHelpTitle || 'Anki Mode (Spaced Repetition)'}
+                        {t.ankiHelpTitle || 'Spaced Review'}
                       </h4>
                     </div>
                   </div>
@@ -872,7 +867,7 @@ const StudySettingsModal: React.FC<{
                   }`}
                 >
                   <BrainCircuit size={14} className={mode === 'anki' ? 'text-emerald-500' : 'opacity-60'} />
-                  <span>{t.ankiModeTitle || 'Anki'}</span>
+                  <span>{t.ankiModeTitle || 'Spaced Review'}</span>
                 </button>
                 <button
                   onClick={() => setMode('lockin')}
@@ -907,6 +902,7 @@ const StudySettingsModal: React.FC<{
                       <div key={label} className="flex flex-col items-center gap-1">
                         <input
                           type="number"
+                          aria-label={label}
                           inputMode="numeric"
                           value={value === 0 ? '00' : value.toString().padStart(2, '0')}
                           onChange={(e) => setter(Math.max(0, Math.min(max, parseInt(e.target.value) || 0)))}
@@ -1108,7 +1104,7 @@ const StudySettingsModal: React.FC<{
                 {t.wait}
               </button>
               <button
-                disabled={mode !== 'anki' && (h * 3600 + m * 60 + s <= 0 || h * 3600 + m * 60 + s > 86400)}
+                disabled={h * 3600 + m * 60 + s <= 0 || h * 3600 + m * 60 + s > 86400}
                 onClick={handleStart}
                 className="disabled:opacity-50 disabled:cursor-not-allowed flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs uppercase tracking-wider transition-all active:scale-95 shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2"
               >
@@ -1136,7 +1132,7 @@ const StudyCardFace = React.memo(({ card, side, hidden }: { card: FlashcardData;
   </div>;
 });
 
-const StudySession: React.FC<{
+const SingleCardStudySession: React.FC<{
   card: FlashcardData;
   duration: number;
   resume?: boolean;
@@ -1171,6 +1167,7 @@ const StudySession: React.FC<{
   const [isComplete, setIsComplete] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
+  const [reviewSchedule, setReviewSchedule] = useState<Pick<FlashcardData, 'easeFactor' | 'interval' | 'nextReview'>>(card);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const reviewLock = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -1445,11 +1442,12 @@ const StudySession: React.FC<{
 
   // Main Timer Loop
   useEffect(() => {
-    if (!restored || superseded || isComplete || mode === 'anki' || (mode === 'lockin' && !['COUNTDOWN', 'REVEAL_DELAY'].includes(sessionState))) return;
+    if (!restored || superseded || isComplete || (mode === 'lockin' && !['COUNTDOWN', 'REVEAL_DELAY'].includes(sessionState))) return;
 
     const initial = sessionState === 'REVEAL_DELAY' ? revealDelayLeft : timeLeft;
     const deadline = Date.now() + initial * 1000;
     let finished = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
     const tick = () => {
       if (finished || !mounted.current || supersededRef.current) return;
       const remaining = remainingSeconds(deadline);
@@ -1465,13 +1463,14 @@ const StudySession: React.FC<{
           if (remaining === 0) { finished = true; setSessionState('READY_TO_REVEAL'); }
           else playTick();
         }
-      } else if (mode === 'online') {
+      } else {
         setTimeLeft(remaining);
-        if (remaining === 0) { finished = true; setIsFlipped(true); setIsComplete(true); }
+        if (remaining === 0) finished = true;
       }
+      if (finished && timer) clearInterval(timer);
     };
     tick();
-    const timer = setInterval(tick, 1000);
+    if (!finished) timer = setInterval(tick, 1000);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
     return () => { finished = true; clearInterval(timer); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); };
@@ -1513,16 +1512,17 @@ const StudySession: React.FC<{
     }
   };
 
-  const handleAnkiEvaluation = async (rating: 'hard' | 'good' | 'easy') => {
+  const handleAnkiEvaluation = async (rating: ReviewRating) => {
     if (mode !== 'anki' || !isFlipped || reviewLock.current || isComplete) return;
     reviewLock.current = true;
     setReviewError(null);
     setIsSaving(true);
     try {
       if (!user) throw new Error('Please sign in again before saving a review.');
-      await reviewFlashcard(user, card.id, rating);
+      const schedule = await reviewFlashcard(user, card.id, rating);
 
       if (!mounted.current) return;
+      setReviewSchedule(schedule);
       setShowToast(true);
       toastTimer.current = setTimeout(() => setShowToast(false), 2000);
       setIsComplete(true);
@@ -1673,7 +1673,7 @@ const StudySession: React.FC<{
 
       {/* Controls / Scrollable Reveal for Lock-In */}
       <div className={`flex flex-col items-center gap-8 w-full max-w-sm mt-12 pb-12`}>
-        {mode === 'online' && (
+        {mode !== 'lockin' && (
           <div className={`text-6xl font-extrabold tracking-tighter transition-colors duration-300 ${isStress ? 'text-red-500' : 'text-neutral-50'}`}>
             {formatTime(timeLeft)}
           </div>
@@ -1725,8 +1725,9 @@ const StudySession: React.FC<{
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              onClick={() => { setIsFlipped(true); if (mode === 'online') setIsComplete(true); }}
-              className="px-12 py-4 rounded-2xl bg-neutral-50 text-neutral-950 font-extrabold uppercase tracking-widest hover:bg-neutral-200 active:scale-95 transition-all shadow-xl shadow-white/5"
+              disabled={!restored || timeLeft > 0}
+              onClick={() => { if (!restored || timeLeft > 0) return; setIsFlipped(true); if (mode === 'online') setIsComplete(true); }}
+              className="disabled:opacity-40 disabled:cursor-not-allowed px-12 py-4 rounded-2xl bg-neutral-50 text-neutral-950 font-extrabold uppercase tracking-widest hover:bg-neutral-200 active:scale-95 transition-all shadow-xl shadow-white/5"
             >
               {t.revealAnswer}
             </motion.button>
@@ -1738,28 +1739,16 @@ const StudySession: React.FC<{
               className="w-full space-y-4"
             >
               {mode === 'anki' && !isComplete ? (
-                <div className="flex gap-2 w-full">
-                  <button
-                    disabled={isSaving}
-                    onClick={() => handleAnkiEvaluation('hard')}
-                    className="flex-1 py-4 rounded-xl bg-red-500/30 border-2 border-red-500/50 text-red-500 font-bold hover:bg-red-500/40 transition-all text-sm"
-                  >
-                    {t.hard}
-                  </button>
-                  <button
-                    disabled={isSaving}
-                    onClick={() => handleAnkiEvaluation('good')}
-                    className="flex-1 py-4 rounded-xl bg-blue-500/30 border-2 border-blue-500/50 text-blue-500 font-bold hover:bg-blue-500/40 active:scale-95 transition-all text-sm"
-                  >
-                    {t.good}
-                  </button>
-                  <button
-                    disabled={isSaving}
-                    onClick={() => handleAnkiEvaluation('easy')}
-                    className="flex-1 py-4 rounded-xl bg-emerald-500/30 border-2 border-emerald-500/50 text-emerald-500 font-bold hover:bg-emerald-500/40 active:scale-95 transition-all text-sm"
-                  >
-                    {t.easy}
-                  </button>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+                  {(['again', 'hard', 'good', 'easy'] as const).map(rating => (
+                    <button key={rating} disabled={isSaving} onClick={() => handleAnkiEvaluation(rating)}
+                      title={rating === 'again' ? t.againHint : rating === 'hard' ? t.hardHint : undefined}
+                      className={`py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm disabled:opacity-50 ${rating === 'again' || rating === 'hard' ? 'bg-red-500/30 border-red-500/50 text-red-500 hover:bg-red-500/40' : rating === 'good' ? 'bg-blue-500/30 border-blue-500/50 text-blue-500 hover:bg-blue-500/40' : 'bg-emerald-500/30 border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/40'}`}>
+                      <span className="block">{t[rating]}</span>
+                      <span className="block mt-1 text-xs">~{formatReviewDelay((calculateReview(reviewSchedule, rating).nextReview - Date.now()) / 86400000, language)}</span>
+                    </button>
+                  ))}
+                  <p className="col-span-2 sm:col-span-4 text-xs text-neutral-400">{t.againHint} {t.hardHint}</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-4">
@@ -1794,6 +1783,13 @@ const StudySession: React.FC<{
       </fieldset>
     </div>
   );
+};
+
+const StudySession = (props: React.ComponentProps<typeof SingleCardStudySession>) => {
+  const { user } = useAuth();
+  return props.mode === 'anki' && user
+    ? <ReviewHub requestNew user={user} scope={props.card.unitId} duration={props.duration} language={props.language} onClose={props.onQuit} />
+    : <SingleCardStudySession {...props} />;
 };
 
 const FolderItem: React.FC<{
@@ -1954,6 +1950,7 @@ const FlashcardEditor: React.FC<{
   const draftDismissed = useRef(false);
   const [draftWarning, setDraftWarning] = useState<string | null>(recovered ? (language === 'Amharic' ? 'ያልተቀመጡ ለውጦች ተመልሰዋል።' : 'Your unsaved draft was restored. Review it before saving.') : null);
   const [cardName, setCardName] = useState(initialCard?.cardName || '');
+  const [note, setNote] = useState(initialCard?.note || '');
   const [frontText, setFrontText] = useState(initialCard?.frontText || '');
   const [backText, setBackText] = useState(initialCard?.backText || '');
   const [frontPreview, setFrontPreview] = useState<string | null>(initialCard?.frontImageUrl || null);
@@ -1992,11 +1989,11 @@ const FlashcardEditor: React.FC<{
   const [clearOpen, setClearOpen] = useState(false);
   const [cropBusy, setCropBusy] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
-  const dirty = cardName !== (editingCard?.cardName || '') || frontText !== (editingCard?.frontText || '') || backText !== (editingCard?.backText || '') ||
+  const dirty = note !== (editingCard?.note || '') || cardName !== (editingCard?.cardName || '') || frontText !== (editingCard?.frontText || '') || backText !== (editingCard?.backText || '') ||
     frontPreview !== (editingCard?.frontImageUrl || null) || backPreview !== (editingCard?.backImageUrl || null) ||
     aspectRatio !== (editingCard?.aspectRatio || 1) || textSize !== (editingCard?.textSize || 24) || textColor !== (editingCard?.textColor || '#ffffff') || verticalAlign !== (editingCard?.verticalAlign || 'center');
-  const latestDraft = useRef({ dirty, fields: { cardName, frontText, backText, frontImageUrl: frontPreview || '', backImageUrl: backPreview || '', aspectRatio, textSize, textColor, verticalAlign }, baseline });
-  latestDraft.current = { dirty, fields: { cardName, frontText, backText, frontImageUrl: frontPreview || '', backImageUrl: backPreview || '', aspectRatio, textSize, textColor, verticalAlign }, baseline };
+  const latestDraft = useRef({ dirty, fields: { cardName, note, frontText, backText, frontImageUrl: frontPreview || '', backImageUrl: backPreview || '', aspectRatio, textSize, textColor, verticalAlign }, baseline });
+  latestDraft.current = { dirty, fields: { cardName, note, frontText, backText, frontImageUrl: frontPreview || '', backImageUrl: backPreview || '', aspectRatio, textSize, textColor, verticalAlign }, baseline };
   const clearDraft = () => {
     draftDismissed.current = true;
     try { sessionStorage.removeItem(draftKey); } catch {
@@ -2016,7 +2013,7 @@ const FlashcardEditor: React.FC<{
   useEffect(() => {
     const timer = setTimeout(persistDraft, 250);
     return () => clearTimeout(timer);
-  }, [cardName, frontText, backText, frontPreview, backPreview, aspectRatio, textSize, textColor, verticalAlign]);
+  }, [cardName, note, frontText, backText, frontPreview, backPreview, aspectRatio, textSize, textColor, verticalAlign]);
   useEffect(() => {
     window.addEventListener('pagehide', persistDraft);
     window.addEventListener('beforeunload', persistDraft);
@@ -2100,6 +2097,7 @@ const FlashcardEditor: React.FC<{
       const path = 'flashcards';
       const cardData: any = {
         cardName: cardName.trim(),
+        note,
         frontText,
         backText,
         frontImageUrl: frontUrl,
@@ -2239,6 +2237,14 @@ const FlashcardEditor: React.FC<{
                 )}
               </AnimatePresence>
             </div>
+
+            <label className="block space-y-2 text-sm text-neutral-300">
+              <span>{language === 'Amharic' ? 'የካርድ ማስታወሻ (አማራጭ)' : 'Card note (optional)'}</span>
+              <textarea aria-label={language === 'Amharic' ? 'የካርድ ማስታወሻ (አማራጭ)' : 'Card note (optional)'} value={note} onChange={e => setNote(e.target.value)} maxLength={1000} rows={3}
+                placeholder={language === 'Amharic' ? 'ለምሳሌ፦ ይህ ርዕስ በፈተና ሊመጣ ይችላል።' : 'e.g., This topic may be on the exam.'}
+                className="block w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-neutral-100 resize-y" />
+              <span className="block text-xs text-neutral-500">{language === 'Amharic' ? 'በማጥናት ጊዜ አይታይም። ካርዱን ሲያጋሩ ማስታወሻውም ይካተታል።' : 'Hidden during study. Included when you export or share the card.'} {note.length}/1000</span>
+            </label>
 
             {/* Side Toggle */}
             <div className="flex bg-neutral-900 p-1 rounded-xl border border-neutral-800/30 w-full">
@@ -2574,6 +2580,11 @@ const FlashcardListItem = React.memo(({
             <span className={`font-bold text-sm truncate ${theme === 'light' ? 'text-slate-900' : 'text-neutral-50'}`}>
               {card.cardName || 'Untitled Flashcard'}
             </span>
+            {card.note && <details className="mt-1 text-xs opacity-80" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+              <summary className="cursor-pointer font-semibold">{language === 'Amharic' ? 'ማስታወሻ' : 'Note'}</summary>
+              <p className="whitespace-pre-wrap break-words mt-2">{card.note}</p>
+            </details>}
+
             <div className="flex items-center gap-2 mt-0.5">
               <div className="text-[10px] font-bold uppercase tracking-widest">
                 {getReviewBadge(card.nextReview)}
@@ -2743,7 +2754,7 @@ const FocusCenter = ({
               {onImportDeck && (
                 <button
                   onClick={onImportDeck}
-                  className="px-3.5 py-2 rounded-full bg-amber-400 text-amber-950 hover:bg-amber-300 font-bold text-xs sm:text-[13px] flex items-center gap-1.5 transition-transform active:scale-95 shadow-sm"
+                  className="px-3.5 py-2 rounded-full bg-white text-neutral-950 hover:bg-neutral-100 font-bold text-xs sm:text-[13px] flex items-center gap-1.5 transition-transform active:scale-95 shadow-sm"
                 >
                   <Download size={14} />
                   <span>{t.importDeck}</span>
@@ -3256,7 +3267,7 @@ const UnitView: React.FC<{
     if (!nextReview || nextReview < startOfTomorrow) return (
       <span className="flex items-center gap-1.5 text-red-400">
         <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-        Due Today
+        {t.dueToday}
       </span>
     );
 
@@ -3827,6 +3838,7 @@ const LoginPage = () => {
   const { login, loginAsGuest, user } = useAuth();
   const navigate = useNavigate();
   const [authError, setAuthError] = useState<string | null>(null);
+  const [signInBusy, setSignInBusy] = useState(false);
   const [language, setLanguage] = useState<Language>(() => {
     const saved = optionalStorage.getItem('hahu_language');
     if (saved && (saved === 'English' || saved === 'Amharic')) {
@@ -3850,54 +3862,6 @@ const LoginPage = () => {
   useEffect(() => {
     if (user) navigate('/dashboard');
   }, [user, navigate]);
-
-  const [gisLoaded, setGisLoaded] = useState(false);
-
-  useEffect(() => {
-    const handleCredentialResponse = async (response: any) => {
-      if (!active || typeof response?.credential !== 'string') return;
-      try {
-        setAuthError(null);
-        await login(response.credential);
-      } catch (error: any) {
-        setAuthError(error?.message || "Sign-in failed. Please try again.");
-      }
-    };
-
-    const initializeGsi = () => {
-      const google = (window as any).google;
-      if (google?.accounts?.id && oAuthClientId) {
-        google.accounts.id.initialize({
-          client_id: oAuthClientId,
-          callback: handleCredentialResponse,
-        });
-        const btnContainer = document.getElementById("googleSignInButton");
-        if (btnContainer) {
-          google.accounts.id.renderButton(
-            btnContainer,
-            { theme: theme === 'light' ? 'outline' : 'filled_black', size: "large", text: "continue_with", width: 320, shape: "rectangular" }
-          );
-          setGisLoaded(true);
-        }
-      }
-    };
-
-    let active = true;
-    const ready = () => { if (active) initializeGsi(); };
-    const failed = () => { if (active) setGisLoaded(false); };
-    let script = document.querySelector<HTMLScriptElement>('script[data-hahu-google]');
-    if (!script) {
-      script = document.createElement('script');
-      script.dataset.hahuGoogle = 'true';
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-    script.addEventListener('load', ready);
-    script.addEventListener('error', failed);
-    if ((window as any).google?.accounts?.id) ready();
-    return () => { active = false; script.removeEventListener('load', ready); script.removeEventListener('error', failed); };
-  }, [login, theme]);
 
   const t = translations[language];
 
@@ -3972,17 +3936,19 @@ const LoginPage = () => {
               </div>
             )}
 
-            <div id="googleSignInButton" className={`w-full flex justify-center ${gisLoaded ? '' : 'hidden'}`}></div>
 
-            {!gisLoaded && (
               <button
+                disabled={signInBusy}
+                aria-busy={signInBusy}
                 onClick={async () => {
+                  if (signInBusy) return;
+                  setSignInBusy(true);
                   try {
                     setAuthError(null);
-                    await login(); // No credential passed -> fallback to signInWithPopup
+                    await login(); // Same Firebase popup/link flow used in the profile panel.
                   } catch (error: any) {
                     setAuthError(error?.message || "Sign-in was blocked or failed. Please try again.");
-                  }
+                  } finally { setSignInBusy(false); }
                 }}
                 className={`w-full flex items-center justify-center gap-3 py-3.5 rounded-xl font-extrabold text-sm uppercase tracking-widest active:scale-95 transition-all duration-200 shadow-md ${
                   theme === 'light'
@@ -3993,7 +3959,6 @@ const LoginPage = () => {
                 <UserIcon className="w-5 h-5" />
                 {t.signInWithGoogle}
               </button>
-            )}
 
             <div className="w-full relative py-3 flex items-center justify-center">
               <div className={`absolute border-t w-full ${theme === 'light' ? 'border-slate-200' : 'border-neutral-800'}`}></div>
@@ -4001,13 +3966,16 @@ const LoginPage = () => {
             </div>
 
             <button
+              disabled={signInBusy}
               onClick={async () => {
+                if (signInBusy) return;
+                setSignInBusy(true);
                 try {
                   setAuthError(null);
                   await loginAsGuest();
                 } catch (error: any) {
                   setAuthError(error?.message || "Guest sign-in failed. Please try again.");
-                }
+                } finally { setSignInBusy(false); }
               }}
               className={`w-full flex items-center justify-center gap-3 border py-3 rounded-xl font-extrabold text-sm uppercase tracking-widest active:scale-95 transition-all duration-200 ${
                 theme === 'light'
@@ -4105,6 +4073,7 @@ const DashboardLayout = () => {
   useBeforeUnload(folderAction.pending);
   useEffect(() => { folderAction.setError(null); }, [isAdding, isRenaming]);
   const globalTransferLock = useRef(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [studyModeCard, setStudyModeCard] = useState<FlashcardData | null>(null);
   const globalFileInputRef = useRef<HTMLInputElement>(null);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
@@ -4207,11 +4176,11 @@ const DashboardLayout = () => {
   };
 
   const selectedUnit = useMemo(() => {
-    if (selectedUnitId === 'global_today') return { id: 'global_today', name: 'Due Today', level: 3, parentId: null } as FolderData;
-    if (selectedUnitId === 'global_tomorrow') return { id: 'global_tomorrow', name: 'Due Tomorrow', level: 3, parentId: null } as FolderData;
+    if (selectedUnitId === 'global_today') return { id: 'global_today', name: translations[language].dueToday, level: 3, parentId: null } as FolderData;
+    if (selectedUnitId === 'global_tomorrow') return { id: 'global_tomorrow', name: translations[language].dueTomorrow, level: 3, parentId: null } as FolderData;
     if (selectedUnitId === 'global_upcoming') return { id: 'global_upcoming', name: 'Upcoming', level: 3, parentId: null } as FolderData;
     return selectedUnitId ? folders.find(f => f.id === selectedUnitId) || null : null;
-  }, [folders, selectedUnitId]);
+  }, [folders, selectedUnitId, language]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -4362,13 +4331,7 @@ const DashboardLayout = () => {
 
               {/* User Profile Card */}
               <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-950/50 via-purple-950/30 to-zinc-900 border border-indigo-500/25 flex items-center gap-4 mb-6 shadow-inner">
-                {user?.photoURL ? (
-                  <img src={user.photoURL} alt={user.displayName || ''} className="w-14 h-14 rounded-full border-2 border-indigo-400/60 object-cover shadow-md" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-14 h-14 rounded-full bg-indigo-900/60 border-2 border-indigo-400/60 flex items-center justify-center text-indigo-200 shadow-md">
-                    <UserIcon size={28} />
-                  </div>
-                )}
+                <ProfileAvatar user={user} className="w-14 h-14 border-2 border-indigo-400/60 shadow-md shrink-0" />
                 <div className="min-w-0 flex-1">
                   <h3 className="text-base font-black text-white truncate">{user?.displayName || 'Student'}</h3>
                   <p className="text-xs text-zinc-400 truncate mt-0.5">{user?.email || 'Guest Account'}</p>
@@ -4483,6 +4446,9 @@ const DashboardLayout = () => {
         className="hidden"
       />
 
+      {reviewOpen && user && <ReviewHub user={user} onClose={() => setReviewOpen(false)} language={language} />}
+      {user && <div className="w-full max-w-6xl mx-auto px-4 md:px-8 mb-3 flex justify-end"><button onClick={() => setReviewOpen(true)} className="rounded-xl border border-neutral-700 bg-neutral-900 text-white px-4 py-2 text-sm font-bold">{language === 'Amharic' ? 'ክለሳ ጀምር / ቀጥል' : 'Start / resume reviews'}</button></div>}
+
       {/* Top Main Navigation Header Bar */}
       <header className="w-full max-w-6xl mx-auto px-4 md:px-8 sticky top-4 z-30 mb-2">
         <div className={`h-16 flex items-center justify-between px-6 backdrop-blur-xl border rounded-full transition-colors shadow-xl ${
@@ -4535,17 +4501,9 @@ const DashboardLayout = () => {
               onClick={() => setIsProfileDrawerOpen(true)}
               className="relative w-11 h-11 rounded-full border-2 border-indigo-400/80 shadow-[0_0_15px_rgba(99,102,241,0.35)] flex items-center justify-center bg-indigo-950/80 hover:border-indigo-300 hover:scale-105 active:scale-95 transition-all cursor-pointer group"
               title={translations[language].profile}
+              aria-label={translations[language].profile}
             >
-              {user?.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || ''}
-                  className="w-full h-full rounded-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <UserIcon size={22} className="text-indigo-200 group-hover:text-white transition-colors" />
-              )}
+              <ProfileAvatar user={user} className="w-full h-full" />
               <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-zinc-950" />
             </button>
           </div>
@@ -4756,7 +4714,7 @@ const DashboardLayout = () => {
               <span className={`font-black text-sm tracking-tight block ${theme === 'light' ? 'text-slate-900' : 'text-white'}`}>
                 HaHu Cards
               </span>
-              <span className="text-[11px] opacity-75">Smart Spaced Repetition & Study Hub</span>
+              <span className="text-[11px] opacity-75">{language === 'Amharic' ? 'ካርዶችና ክለሳ' : 'Flashcards & Review'}</span>
             </div>
           </div>
 

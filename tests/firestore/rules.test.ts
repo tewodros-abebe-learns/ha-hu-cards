@@ -71,3 +71,40 @@ test('rules reject unsafe image schemes and out-of-range metadata', async () => 
   await assertFails(updateDoc(doc(store, 'flashcards/card'), { nextReview: 1e20 }));
   await assertFails(updateDoc(doc(store, 'flashcards/card'), { aspectRatio: 0.00001 }));
 });
+
+test('FSRS review metadata stays owner-scoped, bounded, and consistent with the due date', async () => {
+  const store = await hierarchy();
+  const { scheduleReview } = await import('../../src/reviewEngine');
+  const update = scheduleReview({}, 1, 'first-review', Date.now());
+  const ref = doc(store, 'flashcards/card');
+  await assertSucceeds(updateDoc(ref, update));
+  await assertFails(updateDoc(doc(env.authenticatedContext('bob').firestore(), 'flashcards/card'), update));
+  await assertFails(updateDoc(ref, { nextReview: 0 }));
+  await assertFails(updateDoc(ref, { 'review.paused': 'yes' }));
+  await assertFails(updateDoc(ref, { 'review.memory.state': 9 }));
+  await assertFails(updateDoc(ref, { 'review.memory.stability': -1 }));
+  await assertFails(updateDoc(ref, { 'review.group': 'a'.repeat(81) }));
+  await assertFails(updateDoc(ref, { 'review.history': Array(101).fill({ at: 1, rating: 1, id: 'x' }) }));
+  await assertSucceeds(updateDoc(ref, { 'review.paused': true }));
+  await assertSucceeds(updateDoc(ref, { frontText: 'Edited without resetting the schedule' }));
+});
+
+test('optional card notes are bounded text and do not permit cross-account edits', async () => {
+  const store=await hierarchy(); const ref=doc(store,'flashcards/card');
+  await assertSucceeds(updateDoc(ref,{note:'Exam could target this topic.'}));
+  await assertFails(updateDoc(ref,{note:'x'.repeat(1001)}));
+  await assertFails(updateDoc(ref,{note:{text:'invalid'}}));
+  await assertFails(updateDoc(doc(env.authenticatedContext('bob').firestore(),'flashcards/card'),{note:'changed'}));
+  await assertSucceeds(updateDoc(ref,{note:''}));
+});
+
+test('review memory rejects impossible learning steps and reviewed states', async () => {
+  const store=await hierarchy();
+  const {scheduleReview}=await import('../../src/reviewEngine');
+  const ref=doc(store,'flashcards/card');
+  await assertSucceeds(updateDoc(ref,scheduleReview({},1,'valid',Date.now())));
+  await assertFails(updateDoc(ref,{'review.memory.learning_steps':99}));
+  await assertFails(updateDoc(ref,{'review.memory.last_review':null}));
+  await assertFails(updateDoc(ref,{'review.memory.lapses':100}));
+  await assertFails(updateDoc(ref,{'review.memory.stability':0}));
+});

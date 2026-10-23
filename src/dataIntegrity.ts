@@ -26,3 +26,17 @@ export function folderIsDeleting(folders: FolderData[], id: string): boolean {
   }
   return false;
 }
+
+/** Only complete, active ancestor chains can be studied or used as destinations. */
+export function availableFolderIds(folders: FolderData[]): Set<string> {
+  const byId = new Map(folders.map(folder => [folder.id, folder]));
+  return new Set(folders.filter(folder => {
+    let current: FolderData | undefined = folder;
+    for (let depth = 0; depth < 3; depth++) {
+      if (!current || current.deleting) return false;
+      if (!current.parentId) return true;
+      current = byId.get(current.parentId);
+    }
+    return false;
+  }).map(folder => folder.id));
+}
