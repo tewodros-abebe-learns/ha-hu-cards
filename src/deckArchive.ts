@@ -33,13 +33,14 @@ export function sanitizeImportedCard(card: unknown): Partial<FlashcardData> {
   for (const key of ['frontText', 'backText']) {
     if (typeof c[key] === 'string' && c[key].length > MAX_TEXT_LENGTH) throw new Error(`${key} exceeds 2000 characters.`);
   }
-  for (const key of ['frontText', 'backText', 'cardName']) {
+  for (const key of ['frontText', 'backText', 'cardName', 'note']) {
     if (c[key] !== undefined && typeof c[key] !== 'string') throw new Error(`Invalid ${key}: expected text.`);
   }
 
   validateCardUpdates(c);
   return {
     cardName: sanitizeString(c.cardName, 200),
+    note: sanitizeString(c.note, 1000),
     frontText: sanitizeString(c.frontText, MAX_TEXT_LENGTH),
     backText: sanitizeString(c.backText, MAX_TEXT_LENGTH),
     frontImageUrl: validateImageSource(c.frontImageUrl), backImageUrl: validateImageSource(c.backImageUrl),
@@ -162,7 +163,7 @@ export async function exportDeckAsZip(
     validateCardUpdates(card as unknown as Record<string, unknown>);
     imageBudget += (card.frontImageUrl?.length || 0) + (card.backImageUrl?.length || 0);
     if (imageBudget > 50 * 1024 * 1024) throw new Error('Deck images exceed 50MB. Export smaller selections.');
-    const { unitId, nextReview, interval, easeFactor, ...rest } = validateCardUpdates(card as unknown as Record<string, unknown>);
+    const { unitId, nextReview, interval, easeFactor, review, ...rest } = validateCardUpdates(card as unknown as Record<string, unknown>);
 
     let frontImageFile: string | undefined = undefined;
     let backImageFile: string | undefined = undefined;

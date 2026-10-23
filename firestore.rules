@@ -74,12 +74,36 @@ service cloud.firestore {
              data.ownerId == request.auth.uid;
     }
 
+    function validReview(r) {
+      return r is map && r.keys().hasOnly(['version', 'revision', 'memory', 'paused', 'group', 'introducedDay', 'reviewedDay', 'failures', 'history']) &&
+        r.version == 1 && r.revision is string && r.revision.size() <= 128 &&
+        r.paused is bool && r.group is string && r.group.size() <= 80 &&
+        r.introducedDay is string && r.introducedDay.size() <= 10 && r.reviewedDay is string && r.reviewedDay.size() <= 10 &&
+        r.failures is int && r.failures >= 0 && r.failures <= 1000000 &&
+        r.history is list && r.history.size() <= 100 && validMemory(r.memory);
+    }
+    function validMemory(m) {
+      return m is map && m.keys().hasOnly(['due','stability','difficulty','elapsed_days','scheduled_days','learning_steps','reps','lapses','state','last_review']) &&
+        m.due is number && m.due >= 0 && m.due <= 8640000000000000 &&
+        (m.last_review == null || (m.last_review is number && m.last_review >= 0 && m.last_review <= 8640000000000000)) &&
+        m.stability is number && m.stability >= 0 && m.stability <= 100000 &&
+        m.difficulty is number && m.difficulty >= 0 && m.difficulty <= 10 &&
+        m.elapsed_days is number && m.elapsed_days >= 0 && m.elapsed_days <= 100000000 &&
+        m.scheduled_days is number && m.scheduled_days >= 0 && m.scheduled_days <= 36500 &&
+        m.learning_steps is int && m.learning_steps >= 0 && m.learning_steps <= 2 &&
+        m.reps is int && m.reps >= 0 && m.reps <= 1000000 &&
+        m.lapses is int && m.lapses >= 0 && m.lapses <= m.reps && m.state in [0,1,2,3] &&
+        (m.state == 0 || (m.reps >= 1 && m.stability > 0 && m.difficulty >= 1 && m.last_review != null));
+    }
+
     function isValidFlashcard(data) {
       return data.keys().hasAll(['unitId', 'ownerId']) &&
+             (!('review' in data) || (validReview(data.review) && data.nextReview == data.review.memory.due)) &&
              data.unitId is string && isValidId(data.unitId) &&
              data.ownerId == request.auth.uid &&
              (!('frontText' in data) || (data.frontText is string && data.frontText.size() <= 2000)) &&
              (!('backText' in data) || (data.backText is string && data.backText.size() <= 2000)) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 1000)) &&
              (!('cardName' in data) || (data.cardName is string && data.cardName.size() <= 200)) &&
              (!('frontImageUrl' in data) || validImage(data.frontImageUrl)) &&
              (!('backImageUrl' in data) || validImage(data.backImageUrl)) &&
@@ -109,8 +133,8 @@ service cloud.firestore {
     match /flashcards/{cardId} {
       allow get: if isAuthenticated() && isValidId(cardId) && (resource == null || resource.data.ownerId == request.auth.uid);
       allow list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
-      allow create: if isAuthenticated() && isValidId(cardId) && isValidFlashcard(incoming()) && ownsFolder(incoming().unitId) && incoming().keys().hasOnly(['unitId', 'ownerId', 'cardName', 'frontText', 'backText', 'frontImageUrl', 'backImageUrl', 'aspectRatio', 'textSize', 'textColor', 'verticalAlign', 'easeFactor', 'interval', 'nextReview', 'createdAt', 'updatedAt']);
-      allow update: if isAuthenticated() && isValidId(cardId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFlashcard(incoming()) && ownsFolder(incoming().unitId) && (!exists(/databases/$(database)/documents/folders/$(existing().unitId)) || ownsFolder(existing().unitId)) && incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'cardName', 'frontText', 'backText', 'frontImageUrl', 'backImageUrl', 'aspectRatio', 'textSize', 'textColor', 'verticalAlign', 'easeFactor', 'interval', 'nextReview', 'updatedAt']);
+      allow create: if isAuthenticated() && isValidId(cardId) && isValidFlashcard(incoming()) && ownsFolder(incoming().unitId) && incoming().keys().hasOnly(['unitId', 'ownerId', 'cardName', 'note', 'frontText', 'backText', 'frontImageUrl', 'backImageUrl', 'aspectRatio', 'textSize', 'textColor', 'verticalAlign', 'easeFactor', 'interval', 'nextReview', 'review', 'createdAt', 'updatedAt']);
+      allow update: if isAuthenticated() && isValidId(cardId) && isDocOwner() && incoming().ownerId == existing().ownerId && isValidFlashcard(incoming()) && ownsFolder(incoming().unitId) && (!exists(/databases/$(database)/documents/folders/$(existing().unitId)) || ownsFolder(existing().unitId)) && incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'cardName', 'note', 'frontText', 'backText', 'frontImageUrl', 'backImageUrl', 'aspectRatio', 'textSize', 'textColor', 'verticalAlign', 'easeFactor', 'interval', 'nextReview', 'review', 'updatedAt']);
       allow delete: if isAuthenticated() && isValidId(cardId) && isDocOwner();
     }
   }

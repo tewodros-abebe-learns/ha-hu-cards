@@ -36,7 +36,7 @@ test('unsaved edits, nested Escape and focus recovery', async ({ page }) => {
 });
 
 test('visible-only bulk selection and explicit move destination confirmation', async ({ page }) => {
-  await page.getByRole('button', { name: 'Due Today', exact: true }).click();
+  await page.getByRole('button', { name: 'Review Today', exact: true }).click();
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.getByRole('button', { name: 'Select All', exact: true }).click();
   await page.getByRole('button', { name: 'Move', exact: true }).click();
@@ -57,7 +57,7 @@ test('failed deletion remains actionable without losing the selection', async ({
     (window as any).failWrite = true;
     Storage.prototype.setItem = function (key, value) { if ((window as any).failWrite && key.startsWith('hahu_library_')) throw new Error('quota'); original.call(this, key, value); };
   });
-  await page.getByRole('button', { name: 'Due Today', exact: true }).click();
+  await page.getByRole('button', { name: 'Review Today', exact: true }).click();
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.getByRole('button', { name: 'Select All', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -174,15 +174,23 @@ test('fresh Lock-In ignores stale recovery and yields to a newer tab', async ({ 
   expect(await page.evaluate(() => localStorage.getItem('interrupted_lockin_session_guest_ux'))).toContain('new-tab');
 });
 
-test('Anki has no countdown and guards duplicate review submissions', async ({ page }) => {
+test('Anki enforces the countdown, advances the queue and guards duplicate saves', async ({ page }) => {
   await page.getByRole('button', { name: 'Study Due card', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Study Mode Settings', exact: true });
-  await settings.getByRole('button', { name: 'Anki Mode', exact: true }).click();
+  await settings.getByRole('button', { name: 'Spaced Review', exact: true }).click();
+  await settings.getByRole('spinbutton', { name: 'MM', exact: true }).fill('0');
+  await settings.getByRole('spinbutton', { name: 'SS', exact: true }).fill('2');
   await settings.getByRole('button', { name: 'Play', exact: true }).click();
-  await expect(page.getByText(/^\d{2}:\d{2}$/)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Reveal Answer', exact: true }).click();
-  await page.getByRole('button', { name: /Good/ }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].interval)).toBe(1);
+  const reveal = page.getByRole('button', { name: 'Reveal Answer', exact: true });
+  await expect(reveal).toBeDisabled();
+  await expect(reveal).toBeEnabled({ timeout: 5000 });
+  await reveal.click();
+  await page.getByRole('button', { name: /^Remembered/ }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
+  await expect(page.getByText('No cards ready in this queue', {exact:true})).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].review.memory.reps)).toBe(1);
+  await page.getByRole('button', {name:'Undo last rating',exact:true}).click();
+  await expect(reveal).toBeDisabled();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].review.memory.reps)).toBe(0);
 });
 
 test('refresh preserves an unsaved editor draft, and explicit discard clears it', async ({ page }) => {
@@ -214,7 +222,10 @@ test('cross-tab guest sign-out unmounts private editor and keeps its isolated dr
 
 test('simultaneous local writes across two tabs preserve both folders', async ({ page, context }) => {
   const other = await context.newPage();
+  await other.route('**/*', route => new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort());
   await other.goto('/');
+  await expect(other.getByRole('button', { name: 'Profile & Settings', exact: true })).toBeVisible();
+  expect(await other.evaluate(() => !!navigator.locks)).toBe(true);
   await Promise.all([page, other].map((tab, index) => tab.evaluate(async index => {
     const store = await import(/* @vite-ignore */ '/src/' + 'dataStore.ts');
     await store.createFolder(store.createLocalGuestUser(), { name: `Concurrent ${index}`, parentId: null, level: 1 });
@@ -226,7 +237,7 @@ test('simultaneous local writes across two tabs preserve both folders', async ({
 });
 
 test('deck export ignores date filters and the resulting ZIP can be imported', async ({ page }) => {
-  await page.getByRole('button', { name: 'Due Today', exact: true }).click();
+  await page.getByRole('button', { name: 'Review Today', exact: true }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export Deck', exact: true }).first().click();
   const download = await downloadPromise;
@@ -291,4 +302,61 @@ test('an empty saved library stays empty after refresh', async ({ page }) => {
   await page.reload();
   await expect(page.getByRole('button', { name: 'New Folder', exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!))).toEqual({ folders: [], cards: [] });
+});
+
+test('Speed Recall cannot reveal early and restart re-locks the answer', async ({ page }) => {
+  await page.getByRole('button', { name: 'Study Due card', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Study Mode Settings', exact: true });
+  await settings.getByRole('spinbutton', { name: 'MM', exact: true }).fill('0');
+  await settings.getByRole('spinbutton', { name: 'SS', exact: true }).fill('2');
+  await settings.getByRole('button', { name: 'Play', exact: true }).click();
+  const reveal = page.getByRole('button', { name: 'Reveal Answer', exact: true });
+  await expect(reveal).toBeDisabled();
+  await reveal.evaluate(button => (button as HTMLButtonElement).click());
+  await expect(reveal).toBeVisible();
+  await expect(reveal).toBeEnabled({ timeout: 5000 });
+  await reveal.click();
+  await page.getByRole('button', { name: 'Restart', exact: true }).click();
+  await expect(reveal).toBeDisabled();
+});
+
+test('home-page Import uses a white background', async ({ page }) => {
+  await page.getByRole('button', { name: 'Back to Folders', exact: true }).click();
+  const button = page.getByRole('button', { name: 'Import Deck', exact: true });
+  await expect(button).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+});
+
+test('sign-in page offers the shared Firebase button without a Google Identity script', async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.removeItem('hahu_local_guest_session');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'hahu_local_guest_session', newValue: null }));
+  });
+  await expect(page).toHaveURL(/login/);
+  await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeVisible();
+  await expect(page.locator('script[src*="accounts.google.com/gsi"]')).toHaveCount(0);
+});
+
+test('card notes save, open from the list without starting study, and stay out of study', async ({page}) => {
+  await page.getByRole('button',{name:'Study Due card',exact:true}).getByRole('button',{name:'Edit',exact:true}).click();
+  await page.getByRole('textbox',{name:'Card note (optional)',exact:true}).fill('Exam could target this topic.');
+  await page.getByRole('button',{name:'Save',exact:true}).click();
+  const card=page.getByRole('button',{name:'Study Due card',exact:true});
+  await card.getByText('Note',{exact:true}).click();
+  await expect(card.getByText('Exam could target this topic.',{exact:true})).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards.find((c:any)=>c.id==='due').note)).toBe('Exam could target this topic.');
+  await card.getByRole('button',{name:'Study Now',exact:true}).click();
+  const settings=page.getByRole('dialog',{name:'Study Mode Settings',exact:true});
+  await settings.getByRole('button',{name:'Spaced Review',exact:true}).click();
+  await settings.getByRole('button',{name:'Play',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Spaced Review',exact:true}).getByText('Exam could target this topic.',{exact:true})).toHaveCount(0);
+});
+
+test('note-only unsaved edits still require an explicit discard', async ({page}) => {
+  await page.getByRole('button',{name:'Study Due card',exact:true}).getByRole('button',{name:'Edit',exact:true}).click();
+  await page.getByRole('textbox',{name:'Card note (optional)',exact:true}).fill('Remember for exam');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('alertdialog',{name:'Unsaved changes'})).toBeVisible();
+  await page.getByRole('button',{name:'Keep editing',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'Card note (optional)',exact:true})).toHaveValue('Remember for exam');
 });

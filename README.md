@@ -185,3 +185,117 @@ Remaining verification/architecture work: real Google OAuth/mobile browser scena
 large-library low-memory-device profiling, authenticated server backup/repair services,
 full folder-tree backup format, and browser behavior without Web Locks. App bundle-size
 warnings remain; no broad UI rewrite or unmeasured storage-engine migration was made.
+
+### Sign-in and timed review update
+
+- The login page and account panel use the same Firebase Google popup/link flow;
+  the standalone Google Identity Services button/script is no longer loaded.
+- Profile images prefer the linked Google provider's photo, then the Firebase user
+  photo, then initials if the image is missing or cannot load.
+- Speed Recall and Anki both require a positive selected timer. Reveal is disabled
+  until it expires, with wall-clock catch-up after suspension; restart locks it again.
+- Real Google account sign-in and photo delivery still need a deployed-domain check.
+
+### FSRS review queue (requires updated Firestore rules)
+
+**Deploy `firestore.rules` to the configured named database before deploying this
+client.** Existing rules reject the new `review` map. Do not bypass the rules or
+switch the database to test mode. Run `npm run test:rules` with Java 21 before release;
+this workspace lacks Java, so the new emulator tests must run in CI/a Java-enabled
+checkout. Existing legacy cards remain valid under the new rules.
+
+Entry points:
+- **Start / resume reviews** opens the saved review session (or all cards for a new
+  session). Each device/account has a separate recoverable session.
+- Selecting **Spaced Review** from a card starts its folder's queue, not just that card.
+  If a session is already saved, explicitly resume it or start a new one using the
+  newly selected folder/thinking time. Speed Recall and Lock-In keep their own player.
+
+Implemented behavior:
+- A due-now queue advances after each successful rating. New, learning, ready-now,
+  and scheduled-later counts are separate. Learning cards return automatically at
+  their due time while the review remains open. Every card still has a reveal timer.
+- `ts-fsrs` **5.2.3**, pinned, uses default parameters with 90% requested retention,
+  deterministic scheduling (fuzz off), and 1-minute/10-minute learning and relearning
+  steps. Good on a new card starts a 10-minute step, not an immediate one-day interval.
+  We do not claim full Anki equivalence, personalized parameter fitting, or reminders
+  while the app is closed.
+- Existing schedules without history retain their due date and initialize a
+  conservative approximate FSRS state only on their first review/settings save.
+  Exact historical memory state cannot be reconstructed from the old ease/interval.
+- Daily limits default to 20 new cards and 200 review cards. Counts use distinct cards
+  across the loaded account library and the device's local calendar day. Learning
+  steps bypass limits, and remaining ready work is visibly reported. Limits are
+  client-side workload controls, not strict transactional account-wide quotas:
+  simultaneous devices, differing time zones, or deletions can affect counts.
+- Revealed state, the selected card, deadline, limits, pending operation, and last undo
+  are saved locally. Reload resumes without replaying a completed write. Saved intent
+  precedes a rating; operation IDs and optimistic revisions make retries idempotent.
+  A second tab takes ownership and disables the earlier window. Other devices may
+  study independently, but stale writes/undo are rejected by card revisions.
+- Undo restores schedule fields only, preserves edited content, records an undo in
+  history, and refuses to overwrite newer reviews or review settings. Pending saves
+  must be retried/reconciled before another action or a new session.
+- Manage cards can pause/unpause cards and assign related-group labels. Related cards
+  are deferred until tomorrow after a sibling is studied; identical question text in
+  the same folder is grouped automatically. This can be disabled. Management is paged
+  and searchable rather than mounting an entire large library at once.
+- Eight failed recalls trigger a non-destructive suggestion to improve or pause the
+  card. Cards are never automatically rewritten, suspended, or deleted.
+- Card review metadata (FSRS memory, pause/group state, revision, daily markers) syncs
+  with the card. The most recent 100 timestamped rating/undo entries are retained per
+  card to bound document/storage growth; lifetime counters persist. This is not an
+  unlimited audit log or history-based parameter optimizer. Session/limits/undo are
+  device-local; deck export remains content/style-only and excludes review metadata.
+- Concurrent question edits reset the thinking timer and hide the answer. A compact
+  content-change check rejects a rating if the stored question changed before saving.
+  Ordinary editor saves/renames/moves do not overwrite review fields.
+
+Tests cover FSRS mixed sequences, learning delays, daily limits, sibling spacing,
+legacy initialization, strict metadata validation, idempotent retries, undo conflicts,
+refresh recovery, lost checkpoint recovery, pausing, tab ownership, and existing modes.
+Cloud transactions and rule changes require the emulator/CI gate and a real-account
+smoke test after deploying the rules. No production deployment was performed here.
+
+
+### Card notes and plain-language labels
+
+- The editor includes an optional, 1,000-character card note for reminders such as
+  “This topic may be on the exam.” Open **Note** in the card list to read it without
+  starting a study session. Notes are not answer inputs and do not appear on study
+  faces, affect grades, or reset a running review timer.
+- Notes participate in draft recovery, dirty/discard checks and editor conflicts.
+  They are stored with the card, survive moves/migration and round-trip in shared
+  decks. The editor explicitly warns that exported/shared cards include their notes;
+  notes are not a separate private journal.
+- Deploy the latest rules before the client: they allow an optional string `note`
+  of at most 1,000 characters. Existing cards without notes need no migration.
+- User-facing mode/rating labels are now **Spaced Review**, **Forgot**, **Difficult**,
+  **Remembered**, and **Easy**, with equivalent Amharic labels and explanations.
+  Internal mode/rating identifiers and FSRS scheduling are unchanged.
+- Calendar buckets say **Review Today/Tomorrow** (they include scheduled times later
+  in that day); the timed queue says **Ready to review** only for cards ready now.
+  Technical scheduler names are kept out of introductory help, and unsupported
+  promises about never forgetting/fixed review frequencies have been removed.
+
+### Review-flow hardening
+
+- Review writes reject malformed actions and undo snapshots before touching
+  storage. Transactions, idempotent retries and revision checks still govern the
+  actual write; saved-session recovery now also rejects mismatched undo due dates,
+  non-object slots and out-of-range schedule values.
+- A transaction acknowledgement is merged into the live card snapshot, so a
+  completed rating cannot briefly re-queue the old due card or overwrite a newer
+  remote revision.
+- Cards in missing or deleting folder trees are excluded from review for both
+  local and cloud accounts, matching the server rule that requires an active
+  ancestor chain.
+- Unsaved **paused/group** edits in Manage cards now prompt before closing,
+  switching screens, searching, paging or starting a new session; remote updates
+  no longer overwrite the open draft, and a discard control is available. Chosen
+  daily limits survive **Start a new session**.
+- Daily state changes are validated on read and on write, including impossible
+  learning-step counts, lapses greater than repetitions, and reviewed states
+  without a prior review. Legacy zero due dates and oversized intervals migrate
+  safely and can still be undone.
+- An active learning step is never suppressed by related-card spacing.

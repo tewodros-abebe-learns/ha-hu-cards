@@ -12,6 +12,7 @@ export function validateStoredCard(value: unknown): FlashcardData {
   if (!validId(card.id) || !validId(card.unitId)) throw new Error('Invalid saved card identity.');
   // Reject malformed optional fields instead of allowing React or image handling to crash.
   validateCardUpdates(card);
+  if (card.review && (card.review as FlashcardData['review'])!.memory.due !== card.nextReview) throw new Error('Saved review dates disagree.');
   return card as unknown as FlashcardData;
 }
 
