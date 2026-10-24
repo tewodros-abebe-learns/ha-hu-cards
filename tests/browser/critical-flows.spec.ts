@@ -188,10 +188,12 @@ test('Anki enforces the countdown, advances the queue and guards duplicate saves
   await page.getByRole('button', { name: /^Remembered/ }).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
   await expect(page.getByText('All done for now', {exact:true})).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].review.memory.reps)).toBe(1);
-  await page.getByRole('button',{name:'Review options',exact:true}).click();
-  await page.getByRole('button', {name:'Undo last rating',exact:true}).click();
-  await expect(reveal).toBeDisabled();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('hahu_library_guest_ux')!).cards[0].review.memory.reps)).toBe(0);
+  // The second click of the double-click must not create a second review, and the
+  // retired options/manage/undo panel must not come back.
+  for (const name of ['Review options','Manage cards','Undo last rating','Start a new session','Daily limits']) {
+    await expect(page.getByText(name,{exact:true})).toHaveCount(0);
+  }
+  await expect(page.getByText('All done for now', {exact:true})).toBeVisible();
 });
 
 test('refresh preserves an unsaved editor draft, and explicit discard clears it', async ({ page }) => {

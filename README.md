@@ -270,6 +270,31 @@ Cloud transactions and rule changes require the emulator/CI gate and a real-acco
 smoke test after deploying the rules. No production deployment was performed here.
 
 
+### Simplified Spaced Review screen
+
+The review screen deliberately has no settings, management or confirmation
+panels. It contains only the card, the thinking timer, Reveal Answer, the four
+ratings, and close/fullscreen in the corners. Removed from study:
+
+- the options panel (Done/Ready/New/Practising counters, daily limits, thinking
+  time, related-card toggle, manage cards, undo, start-new-session)
+- the resume-vs-new-session prompt, the manage-cards editor and its dirty-state
+  prompts
+
+Compatibility is preserved in the saved data rather than in the UI:
+- **Sessions resume silently.** Opening reviews continues the saved session; a
+  review started from a card's Spaced Review action adopts the newly chosen
+  thinking time and starts that folder only when the folder changes.
+- **Daily limits stay enforced.** When ready cards remain beyond the limit, the
+  done screen shows the count and a single **Study them now** button, which
+  raises the stored limits instead of exposing settings.
+- **Paused cards** stay out of the queue; the done screen offers **Resume paused
+  cards** in one tap (uses the existing revision-checked settings action).
+- **Related-card spacing and daily counts** are unchanged, and are only
+  mentioned when they would otherwise hide work.
+- Rating/undo history, pending-save recovery and cross-tab ownership rules are
+  unchanged. A failed save still exposes Retry/Reload so no rating is lost.
+
 ### Card notes and plain-language labels
 
 - The editor includes an optional, 1,000-character card note for reminders such as

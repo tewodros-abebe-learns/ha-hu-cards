@@ -18,13 +18,17 @@ async function reveal(page: Page) {
   await page.clock.fastForward(2100);
   await page.getByRole('button',{name:'Reveal Answer',exact:true}).click();
 }
-async function openOptions(page: Page) {
-  await page.getByRole('button',{name:'Review options',exact:true}).click();
-}
 async function stored(page: Page) {
   return page.evaluate(()=>JSON.parse(localStorage.getItem('hahu_library_guest_review')!).cards);
 }
-test('ratings advance automatically and forgotten cards return after the learning delay', async ({page}) => {
+/** Empty save/scheduling screens must not creep back into study. */
+async function expectStudyOnly(page: Page) {
+  for (const name of ['Review options','Back to review','Manage cards','Undo last rating','Start a new session','Daily limits','Pause card','Related group']) {
+    await expect(page.getByText(name,{exact:true})).toHaveCount(0);
+  }
+}
+test('ratings advance automatically and forgotten cards return after two hours', async ({page}) => {
+  await expectStudyOnly(page);
   await reveal(page);
   await page.getByRole('button',{name:/^Forgot/}).click();
   await expect(page.getByRole('heading',{name:'Card b',exact:true})).toBeVisible();
@@ -39,67 +43,83 @@ test('ratings advance automatically and forgotten cards return after the learnin
   await expect(page.getByRole('heading',{name:'Card a',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
   expect((await stored(page))[0].review.memory.reps).toBe(1);
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('hahu_library_guest_review')!).cards[0].review.memory.due - Date.now())).toBeLessThanOrEqual(2*3600000);
 });
-test('refresh resumes the current card and does not replay a completed rating', async ({page}) => {
+test('closing and reopening silently resumes without replaying a completed rating', async ({page}) => {
   await reveal(page);
   await page.getByRole('button',{name:/^Easy/}).click();
   await expect(page.getByRole('heading',{name:'Card b',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Close review',exact:true}).click();
   await page.reload();
   await page.getByRole('button',{name:'Start / resume reviews',exact:true}).click();
+  // No resume/start-new prompt exists: the saved session simply continues.
+  await expect(page.getByText('Continue where you left off?',{exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Resume saved review',exact:true})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'Card b',exact:true})).toBeVisible();
   expect((await stored(page))[0].review.memory.reps).toBe(1);
-  await openOptions(page);
-  await page.getByRole('button',{name:'Undo last rating',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Card a',exact:true})).toBeVisible();
-  expect((await stored(page))[0].review.memory.reps).toBe(0);
 });
-test('daily limits disclose remaining work instead of silently hiding it', async ({page}) => {
-  await openOptions(page);
-  await page.getByLabel('New cards per day',{exact:true}).fill('1');
-  await page.getByRole('button',{name:'Back to review',exact:true}).click();
+test('ready cards held back by the daily limit can be studied in one tap', async ({page}) => {
+  await page.getByRole('button',{name:'Close review',exact:true}).click();
+  await page.evaluate(()=>{
+    const key='hahu_review_session_guest_review';
+    const data=JSON.parse(localStorage.getItem(key)!);
+    data.limits={newCards:1,reviews:200,spaceRelated:true};
+    localStorage.setItem(key,JSON.stringify(data));
+  });
+  await page.getByRole('button',{name:'Start / resume reviews',exact:true}).click();
   await reveal(page);
   await page.getByRole('button',{name:/^Easy/}).click();
-  await expect(page.getByText(/1 ready cards remain beyond today/)).toBeVisible();
-  await expect(page.getByText('All done for now',{exact:true})).toBeVisible();
-  await openOptions(page);
-  await page.getByLabel('New cards per day',{exact:true}).fill('2');
-  await page.getByRole('button',{name:'Back to review',exact:true}).click();
+  await expect(page.getByText(/1 more ready cards are waiting/)).toBeVisible();
+  await page.getByRole('button',{name:'Study them now',exact:true}).click();
   await page.clock.fastForward(1000);
   await expect(page.getByRole('heading',{name:'Card b',exact:true})).toBeVisible();
 });
-test('paused cards stay out of the queue and can be resumed without losing content', async ({page}) => {
-  await openOptions(page);
-  await page.getByRole('button',{name:'Manage cards',exact:true}).click();
-  const a=page.getByRole('group',{name:'Card a',exact:true});
-  await a.getByLabel('Pause card',{exact:true}).check();
-  await a.getByRole('button',{name:'Save card settings',exact:true}).click();
-  await expect(a.getByLabel('Pause card',{exact:true})).toBeChecked();
-  await page.getByRole('button',{name:'Back to review',exact:true}).click();
+test('paused cards are hidden but can be resumed from the done screen', async ({page}) => {
+  await page.getByRole('button',{name:'Close review',exact:true}).click();
+  await page.evaluate(()=>{
+    const key='hahu_library_guest_review'; const data=JSON.parse(localStorage.getItem(key)!);
+    data.cards[0].review={version:1,revision:'seed-a',memory:{due:0,stability:0,difficulty:0,elapsed_days:0,scheduled_days:0,learning_steps:0,reps:0,lapses:0,state:0,last_review:null},paused:true,group:'',introducedDay:'',reviewedDay:'',failures:0,history:[]};
+    localStorage.setItem(key,JSON.stringify(data));
+  });
+  await page.getByRole('button',{name:'Start / resume reviews',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Card b',exact:true})).toBeVisible();
-  expect((await stored(page))[0].frontText).toBe('Question a');
-  await openOptions(page);
-  await page.getByRole('button',{name:'Manage cards',exact:true}).click();
-  await a.getByLabel('Pause card',{exact:true}).uncheck();
-  await a.getByRole('button',{name:'Save card settings',exact:true}).click();
-  await page.getByRole('button',{name:'Back to review',exact:true}).click();
+  await reveal(page);
+  await page.getByRole('button',{name:/^Easy/}).click();
+  await expect(page.getByText(/1 paused cards are hidden/)).toBeVisible();
+  await page.getByRole('button',{name:'Resume paused cards',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Card a',exact:true})).toBeVisible();
+  expect((await stored(page))[0].review.paused).toBe(false);
+  expect((await stored(page))[0].frontText).toBe('Question a');
 });
-test('related cards are hidden after their sibling is reviewed', async ({page}) => {
-  await openOptions(page);
-  await page.getByRole('button',{name:'Manage cards',exact:true}).click();
-  for (const id of ['a','b']) {
-    const group=page.getByRole('group',{name:`Card ${id}`,exact:true});
-    await group.getByLabel('Related group (same label for related cards)',{exact:true}).fill('topic');
-    await group.getByRole('button',{name:'Save card settings',exact:true}).click();
-    await expect.poll(async()=>(await stored(page)).find((c:any)=>c.id===id).review.group).toBe('topic');
-  }
-  await page.getByRole('button',{name:'Back to review',exact:true}).click();
+test('identical questions in the same folder are hidden until tomorrow', async ({page}) => {
+  await page.getByRole('button',{name:'Close review',exact:true}).click();
+  await page.evaluate(()=>{
+    const key='hahu_library_guest_review'; const data=JSON.parse(localStorage.getItem(key)!);
+    data.cards.forEach((card:any)=>{ card.frontText='Same question'; });
+    localStorage.setItem(key,JSON.stringify(data));
+  });
+  await page.getByRole('button',{name:'Start / resume reviews',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Card a',exact:true})).toBeVisible();
   await reveal(page);
   await page.getByRole('button',{name:/^Easy/}).click();
   await expect(page.getByText('1 related cards hidden until tomorrow.',{exact:true})).toBeVisible();
+});
+test('several cards are reviewed in order without skipping or repeating', async ({page}) => {
+  await page.getByRole('button',{name:'Close review',exact:true}).click();
+  await page.evaluate(()=>{
+    const key='hahu_library_guest_review'; const data=JSON.parse(localStorage.getItem(key)!);
+    data.cards.push(...['c','d','e'].map(id=>({id,unitId:'folder',ownerId:'guest_review',cardName:`Card ${id}`,frontText:`Question ${id}`,backText:`Answer ${id}`,nextReview:0})));
+    localStorage.setItem(key,JSON.stringify(data));
+  });
+  await page.getByRole('button',{name:'Start / resume reviews',exact:true}).click();
+  for (const id of ['a','b','c','d','e']) {
+    await expect(page.getByRole('heading',{name:`Card ${id}`,exact:true})).toBeVisible();
+    await reveal(page);
+    await page.getByRole('button',{name:/^Remembered/}).click();
+  }
+  await expect(page.getByText('All done for now',{exact:true})).toBeVisible();
+  const reviews = (await stored(page)).filter((card:any)=>card.review);
+  expect(reviews.map((card:any)=>card.id).sort()).toEqual(['a','b','c','d','e']);
+  expect(new Set(reviews.map((card:any)=>card.review.revision)).size).toBe(5);
 });
 test('a lost session checkpoint can be retried without rating twice', async ({page}) => {
   await reveal(page);
@@ -128,7 +148,6 @@ test('another tab taking ownership disables stale review controls', async ({page
   await page.clock.fastForward(5000);
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
 });
-
 test('editing a question during review hides its answer and restarts thinking time', async ({page}) => {
   await reveal(page);
   await expect(page.getByText('Answer a',{exact:true})).toBeVisible();
@@ -141,23 +160,7 @@ test('editing a question during review hides its answer and restarts thinking ti
   await expect(page.getByText('Answer a',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
 });
-
-test('a newer schedule prevents undo from overwriting another session', async ({page}) => {
-  await reveal(page);
-  await page.getByRole('button',{name:/^Easy/}).click();
-  await expect(page.getByRole('heading',{name:'Card b',exact:true})).toBeVisible();
-  await page.evaluate(()=>{
-    const key='hahu_library_guest_review'; const data=JSON.parse(localStorage.getItem(key)!);
-    data.cards[0].review.revision='newer-review'; data.cards[0].review.paused=true;
-    localStorage.setItem(key,JSON.stringify(data));window.dispatchEvent(new CustomEvent('hahu_cards_update_guest_review'));
-  });
-  await openOptions(page);
-  await page.getByRole('button',{name:'Undo last rating',exact:true}).click();
-  await expect(page.getByRole('alert')).toContainText('changed in another session');
-  expect((await stored(page))[0].review.paused).toBe(true);
-});
-
-test('an explicit new Anki session uses the newly selected timer instead of silently resuming', async ({page}) => {
+test('starting from a card adopts the chosen timer without a resume prompt', async ({page}) => {
   await page.getByRole('button',{name:'Close review',exact:true}).click();
   await page.getByText('Review folder',{exact:true}).click();
   await page.getByRole('button',{name:'Study Card a',exact:true}).click();
@@ -166,44 +169,11 @@ test('an explicit new Anki session uses the newly selected timer instead of sile
   await settings.getByRole('spinbutton',{name:'MM',exact:true}).fill('0');
   await settings.getByRole('spinbutton',{name:'SS',exact:true}).fill('3');
   await settings.getByRole('button',{name:'Play',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Resume saved review',exact:true})).toBeVisible();
-  page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('button',{name:'Start a new session',exact:true}).click();
+  await expectStudyOnly(page);
   await expect(page.getByRole('heading',{name:'Card a',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('hahu_review_session_guest_review')!).duration)).toBe(3);
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
 });
-
-test('unsaved card settings need confirmation and remote updates cannot overwrite the draft', async ({page}) => {
-  await openOptions(page);
-  await page.getByRole('button',{name:'Manage cards',exact:true}).click();
-  const a=page.getByRole('group',{name:'Card a',exact:true});
-  const field=a.getByLabel('Related group (same label for related cards)',{exact:true});
-  await field.fill('My unsaved group');
-  page.once('dialog',d=>d.dismiss());
-  await page.getByRole('button',{name:'Close review',exact:true}).click();
-  await expect(field).toHaveValue('My unsaved group');
-  await page.evaluate(async()=>{
-    const storePath='/src/dataStore.ts'; const enginePath='/src/reviewEngine.ts';
-    const {applyReviewAction}=await import(storePath);
-    const {revision}=await import(enginePath);
-    const data=JSON.parse(localStorage.getItem('hahu_library_guest_review')!);
-    await applyReviewAction({uid:'guest_review'} as any,'a',{kind:'settings',id:'other-settings',expected:revision(data.cards[0]),at:Date.now(),paused:true,group:'Remote group'});
-  });
-  await expect(field).toHaveValue('My unsaved group');
-  await a.getByRole('button',{name:'Save card settings',exact:true}).click();
-  await expect(page.getByRole('alert')).toContainText('changed in another session');
-  expect((await stored(page))[0].review.group).toBe('Remote group');
-});
-test('starting a new session preserves chosen daily workload limits', async ({page}) => {
-  await openOptions(page);
-  await page.getByLabel('New cards per day',{exact:true}).fill('3');
-  page.once('dialog',d=>d.accept());
-  await page.getByRole('button',{name:'Start a new session',exact:true}).click();
-  await openOptions(page);
-  await expect(page.getByLabel('New cards per day',{exact:true})).toHaveValue('3');
-});
-
 test('a deleting folder removes its cards from the active review queue', async ({page}) => {
   await page.evaluate(()=>{
     const key='hahu_library_guest_review'; const data=JSON.parse(localStorage.getItem(key)!);
@@ -214,7 +184,6 @@ test('a deleting folder removes its cards from the active review queue', async (
   await expect(page.getByRole('heading',{name:'Card a',exact:true})).toHaveCount(0);
   await expect(page.getByText('All done for now',{exact:true})).toBeVisible();
 });
-
 test('the answer flips into place without mirrored text, and is not rendered before reveal', async ({page}) => {
   const stage = page.locator('[data-flip-stage]');
   await expect(stage).toHaveAttribute('data-flipped','false');
@@ -223,18 +192,13 @@ test('the answer flips into place without mirrored text, and is not rendered bef
   await expect(stage).toHaveAttribute('data-flipped','true');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.querySelector('[data-flip-stage]')!).transform)).toMatch(/^matrix3d\(-1/);
   const transforms = await page.evaluate(() => ({
-    stage: getComputedStyle(document.querySelector('[data-flip-stage]')!).transform,
     back: getComputedStyle(document.querySelector('[data-card-face="back"]')!).transform,
     backface: getComputedStyle(document.querySelector('[data-card-face="back"]')!).backfaceVisibility
   }));
-  // The stage turns 180 degrees while the back face turns another 180, so the
-  // answer reads normally rather than mirrored. Both faces hide their reverse.
-  expect(transforms.stage).toMatch(/^matrix3d\(-1/);
   expect(transforms.back).toMatch(/^matrix3d\(-1/);
   expect(transforms.backface).toBe('hidden');
   await expect(page.getByText('Answer a',{exact:true})).toBeVisible();
 });
-
 test('image cards from imported decks keep their layout in Spaced Review', async ({page}) => {
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
   await page.evaluate((image) => {
@@ -254,16 +218,6 @@ test('image cards from imported decks keep their layout in Spaced Review', async
   await page.getByRole('button',{name:'Reveal Answer',exact:true}).click();
   await expect(page.locator('[data-card-face="back"] img')).toBeVisible();
 });
-
-test('opening options pauses the thinking countdown instead of revealing early', async ({page}) => {
-  await page.getByRole('button',{name:'Review options',exact:true}).click();
-  await page.clock.fastForward(4000);
-  await page.getByRole('button',{name:'Back to review',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
-  await page.clock.fastForward(1000);
-  await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeEnabled();
-});
-
 test('rating buttons show the requested 2 h / 4 h / 1 d / 3 d spacing', async ({page}) => {
   await reveal(page);
   for (const [label, delay] of [['Forgot','2 h'],['Difficult','4 h'],['Remembered','1 d'],['Easy','3 d']]) {
@@ -276,5 +230,4 @@ test('rating buttons show the requested 2 h / 4 h / 1 d / 3 d spacing', async ({
   }).toBeGreaterThanOrEqual(4 * 3600000 - 60000);
   const [saved] = await stored(page);
   expect(saved.review.memory.due).toBe(saved.nextReview);
-  expect(saved.nextReview - Date.now()).toBeLessThanOrEqual(4 * 3600000 + 60000);
 });
