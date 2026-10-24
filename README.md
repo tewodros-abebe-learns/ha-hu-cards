@@ -215,9 +215,21 @@ Implemented behavior:
 - A due-now queue advances after each successful rating. New, learning, ready-now,
   and scheduled-later counts are separate. Learning cards return automatically at
   their due time while the review remains open. Every card still has a reveal timer.
-- `ts-fsrs` **5.2.3**, pinned, uses default parameters with 90% requested retention,
-  deterministic scheduling (fuzz off), and 1-minute/10-minute learning and relearning
-  steps. Good on a new card starts a 10-minute step, not an immediate one-day interval.
+- `ts-fsrs` **5.2.3**, pinned, uses default parameters with 90% requested retention and
+  deterministic scheduling (fuzz off). FSRS still maintains each card's memory state
+  (stability, difficulty, repetitions, lapses, learning steps).
+- First-review timing is a fixed policy shown on the rating buttons: **Forgot 2 hours,
+  Difficult 4 hours, Remembered 1 day, Easy 3 days**. Cards that have not graduated
+  (new/learning) use these exactly, so a rating always produces the interval shown.
+  Graduated review/relearning cards keep their longer FSRS interval and use the chosen
+  answer's value only as a minimum, so mature schedules are never shortened and
+  answers stay ordered. Forgetting a graduated card returns it after 2 hours rather
+  than in one minute. A first interval of a day or more (Remembered/Easy) graduates
+  the card to a normal review state, so it is labelled **Review** and counts toward
+  the daily review limit instead of masquerading as an in-session practice step. The stored due date, legacy `interval` and
+  `memory.scheduled_days` are written together, so validation and the Firestore rules
+  continue to agree. Changing these constants requires updating the button expectations
+  in `tests/browser/review-queue.spec.ts` and `tests/fsrsReview.test.ts`.
   We do not claim full Anki equivalence, personalized parameter fitting, or reminders
   while the app is closed.
 - Existing schedules without history retain their due date and initialize a
@@ -251,7 +263,7 @@ Implemented behavior:
   content-change check rejects a rating if the stored question changed before saving.
   Ordinary editor saves/renames/moves do not overwrite review fields.
 
-Tests cover FSRS mixed sequences, learning delays, daily limits, sibling spacing,
+Tests cover FSRS mixed sequences, first-interval mapping, daily limits, sibling spacing,
 legacy initialization, strict metadata validation, idempotent retries, undo conflicts,
 refresh recovery, lost checkpoint recovery, pausing, tab ownership, and existing modes.
 Cloud transactions and rule changes require the emulator/CI gate and a real-account

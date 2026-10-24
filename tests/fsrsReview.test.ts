@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { FlashcardData } from '../src/models';
-import { initialReview, scheduleReview, revision, snapshot, localDay, reviewQueue, validateReviewData } from '../src/reviewEngine';
+import { cardKind, initialReview, scheduleReview, revision, snapshot, localDay, reviewQueue, validateReviewData } from '../src/reviewEngine';
 import { parseReviewSession, freshReviewSession } from '../src/reviewSession';
 import { applyReviewAction } from '../src/dataStore';
 import { readLocalLibrary } from '../src/localLibrary';
@@ -23,9 +23,39 @@ test('FSRS safely handles every rating sequence through six due reviews', () => 
   }
   walk(card('one'), now, 6);
 });
-test('Again returns after one minute and Good follows the ten-minute learning step', () => {
-  assert.equal(scheduleReview(card('one'), 1, 'again', now).nextReview, now+60000);
-  assert.equal(scheduleReview(card('one'), 3, 'good', now).nextReview, now+600000);
+test('new cards follow the requested first intervals: 2 h, 4 h, 1 day and 3 days', () => {
+  const hours = 3600000;
+  assert.deepEqual(
+    [1, 2, 3, 4].map(rating => scheduleReview(card('one'), rating, `first-${rating}`, now).nextReview! - now),
+    [2 * hours, 4 * hours, 24 * hours, 72 * hours]
+  );
+  // A day or more graduates the card to a normal review, so it obeys the daily
+  // review limit and is no longer labelled as an in-session practice step.
+  assert.deepEqual([1, 2, 3, 4].map(rating => cardKind({ ...card('one'), ...scheduleReview(card('one'), rating, `kind-${rating}`, now) })), ['learning','learning','review','review']);
+  for (const rating of [3, 4]) {
+    const next = scheduleReview(card('one'), rating, `graduate-${rating}`, now);
+    assert.equal(next.review.memory.state, 2);
+    assert.equal(next.review.memory.learning_steps, 0);
+  }
+});
+test('stored memory agrees with the chosen interval and keeps a valid state', () => {
+  for (const rating of [1, 2, 3, 4]) {
+    const next = scheduleReview(card('one'), rating, `stored-${rating}`, now);
+    assert.equal(next.review.memory.due, next.nextReview);
+    assert.equal(next.interval, (next.nextReview! - now) / 86400000);
+    assert.ok(next.review.memory.scheduled_days <= 36500);
+    assert.doesNotThrow(() => validateReviewData(next.review));
+  }
+});
+test('graduated cards keep their longer FSRS interval and are never scheduled sooner than the rating minimum', () => {
+  const mature = card('mature', { review: { ...initialReview({ interval: 60, nextReview: now }, now), memory: { ...initialReview({ interval: 60, nextReview: now }, now).memory, state: 2 } } });
+  const good = scheduleReview(mature, 3, 'mature-good', now);
+  assert.ok(good.nextReview! - now >= 60 * 86400000, 'a mature interval must not shrink to one day');
+  assert.ok(scheduleReview(mature, 4, 'mature-easy', now).nextReview! >= good.nextReview!);
+  // Forgetting a graduated card returns it after two hours, not immediately.
+  const forgot = scheduleReview(mature, 1, 'mature-forgot', now);
+  assert.equal(forgot.nextReview, now + 2 * 3600000);
+  assert.ok(forgot.review.memory.due === forgot.nextReview);
 });
 test('legacy schedules are conservatively initialized without changing their due date', () => {
   const c = card('old', { interval: 8, nextReview: now });
@@ -34,7 +64,7 @@ test('legacy schedules are conservatively initialized without changing their due
   assert.ok(scheduleReview(c, 3, 'legacy', now).nextReview! > now);
 });
 test('queue distinguishes ready, new, learning, later, paused, and daily limits', () => {
-  const learning = { ...card('learning'), ...scheduleReview(card('learning'),1,'first',now-60000) };
+  const learning = { ...card('learning'), ...scheduleReview(card('learning'),1,'first',now-2*3600000-60000) };
   const paused = card('paused', { review: { ...initialReview({}, now), paused: true } });
   const old = card('old', { interval: 2, nextReview: now-1000 });
   const all = [card('new'), learning, old, paused, card('later', { nextReview: now+5000 })];
@@ -44,7 +74,7 @@ test('queue distinguishes ready, new, learning, later, paused, and daily limits'
   assert.deepEqual(reviewQueue(all,null,limits,now).eligible.map(c=>c.id), ['learning','old','new']);
 });
 test('related cards are hidden until the next day but the same learning card can return', () => {
-  const a = { ...card('a'), ...scheduleReview(card('a'),1,'first',now-60000) };
+  const a = { ...card('a'), ...scheduleReview(card('a'),1,'first',now-2*3600000-60000) };
   a.review.group = 'topic';
   const b = card('b', { review: { ...initialReview({}, now), group: 'topic' } });
   assert.deepEqual(reviewQueue([a,b],null,limits,now).eligible.map(c=>c.id), ['a']);
@@ -131,7 +161,7 @@ test('legacy zero due dates and large intervals migrate consistently and can be 
   assert.equal(restored.nextReview,0);assert.equal(restored.review?.memory.due,0);assert.equal(restored.interval,100000);
 });
 test('learning cards remain eligible even when their sibling was reviewed today', () => {
-  const a={...card('a'),...scheduleReview(card('a'),1,'a',now-60000)};
+  const a={...card('a'),...scheduleReview(card('a'),1,'a',now-2*3600000-60000)};
   const b={...card('b'),...scheduleReview(card('b'),4,'b',now-60000)};
   a.review.group=b.review.group='same topic';
   assert.deepEqual(reviewQueue([a,b],null,limits,now).eligible.map(c=>c.id),['a']);

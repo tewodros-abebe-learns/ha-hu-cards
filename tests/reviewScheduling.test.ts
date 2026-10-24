@@ -7,9 +7,9 @@ import { profilePhotoCandidates } from '../src/profilePhoto';
 const day = 86400000;
 const start = Date.UTC(2026, 9, 23);
 
-test('forgotten cards relearn after one minute, not an immediately-due loop', () => {
+test('forgotten cards relearn after two hours, not an immediately-due loop', () => {
   const again = calculateReview({ interval: 120, easeFactor: 3, nextReview: start }, 'again', start);
-  assert.equal(again.nextReview, start + 60000);
+  assert.equal(again.nextReview, start + 2 * 3600000);
   assert.equal(again.easeFactor, 2.8);
   const recovered = calculateReview(again, 'good', again.nextReview);
   assert.equal(recovered.interval, 1);
@@ -43,7 +43,7 @@ test('early successful reviews cannot repeatedly inflate intervals; forgetting s
   assert.deepEqual(calculateReview(card, 'good', start), card);
   assert.deepEqual(calculateReview(card, 'easy', start), card);
   assert.ok(calculateReview(card, 'hard', start).nextReview <= card.nextReview);
-  assert.equal(calculateReview(card, 'again', start).nextReview, start + 60000);
+  assert.equal(calculateReview(card, 'again', start).nextReview, start + 2 * 3600000);
 });
 test('late reviews are bounded and invalid ratings are rejected before saving', () => {
   const card = { interval: 10, easeFactor: 2.5, nextReview: start };

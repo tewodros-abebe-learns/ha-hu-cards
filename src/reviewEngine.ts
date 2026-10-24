@@ -14,6 +14,38 @@ export interface ReviewData {
   history: { at: number; rating: number; id: string }[];
 }
 export type ScheduleSnapshot = Pick<FlashcardData, 'review' | 'interval' | 'nextReview' | 'easeFactor'>;
+/**
+ * Spaced Review's first-interval policy, in milliseconds.
+ * Forgot 2 hours, Difficult 4 hours, Remembered 1 day, Easy 3 days.
+ * Cards that have not graduated follow these exactly; graduated cards use them
+ * as minimums so a mature FSRS schedule is never shortened.
+ */
+export const RATING_INTERVALS_MS = Object.freeze({
+  1: 2 * 60 * 60 * 1000,
+  2: 4 * 60 * 60 * 1000,
+  3: 24 * 60 * 60 * 1000,
+  4: 3 * 24 * 60 * 60 * 1000
+} as const);
+export const MAX_DUE_MS = 8.64e15;
+
+export function ratingIntervalMs(rating: number): number {
+  if (![1, 2, 3, 4].includes(rating)) throw new Error('Invalid review rating.');
+  return RATING_INTERVALS_MS[rating as 1 | 2 | 3 | 4];
+}
+
+/**
+ * Decide the next due delay from the FSRS proposal. New/Learning cards get the
+ * requested interval exactly; Review/Relearning cards keep FSRS timing but are
+ * never scheduled sooner than the chosen answer's minimum, so answers stay
+ * ordered (Forgot < Difficult < Remembered < Easy).
+ */
+export function nextReviewDelay(state: number, rating: number, fsrsDue: number, now: number): number {
+  const minimum = ratingIntervalMs(rating);
+  const proposed = Math.max(0, fsrsDue - now);
+  if (state === State.New || state === State.Learning) return minimum;
+  return Math.max(minimum, proposed);
+}
+
 export const scheduler = fsrs({ request_retention: 0.9, maximum_interval: 36500, enable_fuzz: false, learning_steps: ['1m', '10m'], relearning_steps: ['1m', '10m'] });
 export function localDay(now = Date.now()): string {
   const d = new Date(now);
@@ -53,15 +85,27 @@ export function scheduleReview(card: ScheduleSnapshot, rating: number, id: strin
   // No early-review interval inflation: the queue only admits cards when due.
   if (memory.due.getTime() > now) throw new Error('This card is not ready for review yet.');
   const next = scheduler.next(memory, now, rating as Grade).card;
+  const delay = nextReviewDelay(memory.state, rating, next.due.getTime(), now);
+  const due = Math.min(MAX_DUE_MS, now + delay);
+  // Keep FSRS memory consistent with the date actually shown and stored.
+  // An interval of a day or more graduates the card out of the learning steps:
+  // it then counts as a normal review (labels, daily review limit and ordering)
+  // instead of pretending to still be a short in-session practice step.
+  const graduating = [State.New, State.Learning, State.Relearning].includes(next.state) && delay >= 86400000;
+  const nextMemory = {
+    ...storeMemory(next),
+    ...(graduating ? { state: State.Review, learning_steps: 0 } : {}),
+    due, scheduled_days: Math.min(36500, (due - now) / 86400000)
+  };
   const day = localDay(now);
   const review: ReviewData = {
-    ...prior, revision: id, memory: storeMemory(next),
+    ...prior, revision: id, memory: nextMemory,
     introducedDay: prior.introducedDay || (memory.reps === 0 ? day : ''), reviewedDay: day,
     failures: prior.failures + (rating === 1 ? 1 : 0),
     history: [...prior.history, { at: now, rating, id }].slice(-100)
   };
   validateReviewData(review);
-  return { review, interval: Math.max(0, (next.due.getTime() - now) / 86400000), nextReview: next.due.getTime() };
+  return { review, interval: Math.max(0, (due - now) / 86400000), nextReview: due };
 }
 export function validateReviewData(value: unknown): asserts value is ReviewData {
   const r = value as ReviewData;

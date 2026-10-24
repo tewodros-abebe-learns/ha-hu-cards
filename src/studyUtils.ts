@@ -51,11 +51,11 @@ export function calculateReview(card: { easeFactor?: number; interval?: number; 
   let interval: number;
   let nextReview: number | undefined;
   if (rating === 'again') {
-    interval = 1 / 1440; // Relearn after one minute, never immediately due in a loop.
+    interval = 2 / 24; // Relearn after two hours, never immediately due in a loop.
     easeFactor -= 0.2;
   } else if (rating === 'hard') {
     easeFactor -= 0.15;
-    interval = learning ? 6 / 1440 : early ? Math.max(1, Math.round(previous * 0.5)) : Math.max(previous + 1, Math.round(previous * 1.2));
+    interval = learning ? 4 / 24 : early ? Math.max(1, Math.round(previous * 0.5)) : Math.max(previous + 1, Math.round(previous * 1.2));
     if (early) nextReview = Math.min(due, now + interval * DAY);
   } else if (early) {
     interval = previous;
@@ -63,7 +63,7 @@ export function calculateReview(card: { easeFactor?: number; interval?: number; 
   } else if (rating === 'good') {
     interval = learning ? 1 : Math.max(previous + 1, Math.round((previous + overdue * 0.5) * easeFactor));
   } else {
-    interval = learning ? 4 : Math.max(previous + 2, Math.round((previous + overdue) * easeFactor * 1.3));
+    interval = learning ? 3 : Math.max(previous + 2, Math.round((previous + overdue) * easeFactor * 1.3));
     easeFactor += 0.15;
   }
   easeFactor = Math.max(1.3, Math.min(3.5, Number(easeFactor.toFixed(2))));

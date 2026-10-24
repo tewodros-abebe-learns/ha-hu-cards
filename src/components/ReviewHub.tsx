@@ -283,7 +283,7 @@ export function ReviewHub({ user, scope = null, duration = 60, language = 'Engli
         </section> : <section className="text-center space-y-3">
           <Check className="mx-auto text-emerald-400" size={48} />
           <h3 className="text-2xl font-extrabold tracking-tight">{text('All done for now', 'ለአሁኑ ተጠናቅቋል')}</h3>
-          {queue.nextLearning && <p className="text-sm text-neutral-400">{text('Next practice card in', 'ቀጣዩ የልምምድ ካርድ በ')} {Math.max(1, Math.ceil((queue.nextLearning - now) / 1000))}s</p>}
+          {queue.nextLearning && <p className="text-sm text-neutral-400">{text('Next practice card in', 'ቀጣዩ የልምምድ ካርድ በ')} {formatReviewDelay(Math.max(1, queue.nextLearning - now) / 86400000, language)}</p>}
           <p className="text-sm text-neutral-500">{session.completed} {text('done this session', 'በዚህ ክፍለ ጊዜ')}</p>
           {queue.limited > 0 && <p className="mx-auto max-w-sm text-sm text-amber-300">{queue.limited} {text('ready cards remain beyond today’s limit.', 'ዝግጁ ካርዶች ከዛሬው ገደብ በላይ ይቀራሉ።')} <button className="underline" onClick={() => setView('options')}>{text('Raise limit', 'ገደቡን ጨምር')}</button></p>}
           {queue.hidden > 0 && <p className="text-xs text-neutral-500">{queue.hidden} {text('related cards hidden until tomorrow.', 'ተዛማጅ ካርዶች እስከ ነገ ተደብቀዋል።')}</p>}

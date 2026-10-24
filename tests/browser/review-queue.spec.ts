@@ -31,10 +31,15 @@ test('ratings advance automatically and forgotten cards return after the learnin
   await reveal(page);
   await page.getByRole('button',{name:/^Easy/}).click();
   await expect(page.getByText('All done for now',{exact:true})).toBeVisible();
-  await page.clock.fastForward(61000);
+  // Forgot returns after two hours, not one minute.
+  await expect(page.getByText(/Next practice card in 2 h/)).toBeVisible();
+  await page.clock.fastForward(1000);
+  await expect(page.getByRole('heading',{name:'Card a',exact:true})).toHaveCount(0);
+  await page.clock.fastForward(2*3600000);
   await expect(page.getByRole('heading',{name:'Card a',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
   expect((await stored(page))[0].review.memory.reps).toBe(1);
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('hahu_library_guest_review')!).cards[0].review.memory.due - Date.now())).toBeLessThanOrEqual(2*3600000);
 });
 test('refresh resumes the current card and does not replay a completed rating', async ({page}) => {
   await reveal(page);
@@ -257,4 +262,19 @@ test('opening options pauses the thinking countdown instead of revealing early',
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeDisabled();
   await page.clock.fastForward(1000);
   await expect(page.getByRole('button',{name:'Reveal Answer',exact:true})).toBeEnabled();
+});
+
+test('rating buttons show the requested 2 h / 4 h / 1 d / 3 d spacing', async ({page}) => {
+  await reveal(page);
+  for (const [label, delay] of [['Forgot','2 h'],['Difficult','4 h'],['Remembered','1 d'],['Easy','3 d']]) {
+    await expect(page.getByRole('button', { name: new RegExp(`^${label}`) })).toContainText(`~${delay}`);
+  }
+  await page.getByRole('button',{name:/^Difficult/}).click();
+  await expect.poll(async()=>{
+    const [card] = await stored(page);
+    return card.nextReview - Date.now();
+  }).toBeGreaterThanOrEqual(4 * 3600000 - 60000);
+  const [saved] = await stored(page);
+  expect(saved.review.memory.due).toBe(saved.nextReview);
+  expect(saved.nextReview - Date.now()).toBeLessThanOrEqual(4 * 3600000 + 60000);
 });
