@@ -99,6 +99,11 @@ export function ReviewHub({ user, scope = null, duration = 60, language = 'Engli
   const scopedCards = useMemo(() => availableCards.filter(card => !session.scope || card.unitId === session.scope), [availableCards, session.scope]);
   const queue = reviewQueue(availableCards, session.scope, session.limits, now);
   const pausedCards = useMemo(() => scopedCards.filter(card => card.review?.paused), [scopedCards]);
+  // A folder review stays in that folder, but finishing it must never strand
+  // the rest of the library: offer the other decks in one tap.
+  const otherDue = useMemo(() => session.scope
+    ? reviewQueue(availableCards, null, session.limits, now).eligible.filter(c => c.unitId !== session.scope).length
+    : 0, [availableCards, session.scope, session.limits, now]);
   const current = availableCards.find(c => c.id === session.current?.id);
   const content = useMemo(() => current ? cardContentVersion(current) : '', [current]);
   useEffect(() => {
@@ -144,6 +149,9 @@ export function ReviewHub({ user, scope = null, duration = 60, language = 'Engli
       newCards: Math.min(1000, latest.current.limits.newCards + more),
       reviews: Math.min(10000, latest.current.limits.reviews + more)
     } });
+  };
+  const reviewEverything = () => {
+    change({ ...latest.current, scope: null, current: null, undo: null });
   };
   const resumePaused = async () => {
     if (lock.current || !pausedCards.length) return;
@@ -207,7 +215,11 @@ export function ReviewHub({ user, scope = null, duration = 60, language = 'Engli
           <Check className="mx-auto text-emerald-400" size={48} />
           <h3 className="text-2xl font-extrabold tracking-tight">{text('All done for now', 'ለአሁኑ ተጠናቅቋል')}</h3>
           {queue.nextLearning && <p className="text-sm text-neutral-400">{text('Next practice card in', 'ቀጣዩ የልምምድ ካርድ በ')} {formatReviewDelay(Math.max(1, queue.nextLearning - now) / 86400000, language)}</p>}
-          {!queue.nextLearning && queue.limited === 0 && <p className="text-sm text-neutral-400">{text('Nothing else is due right now.', 'አሁን ሌላ የሚከለስ የለም።')}</p>}
+          {!queue.nextLearning && queue.limited === 0 && otherDue === 0 && <p className="text-sm text-neutral-400">{text('Nothing else is due right now.', 'አሁን ሌላ የሚከለስ የለም።')}</p>}
+          {otherDue > 0 && <div className="mx-auto max-w-sm space-y-2">
+            <p className="text-sm text-sky-300">{otherDue} {text('more cards are due in other folders.', 'ተጨማሪ ካርዶች በሌሎች አቃፊዎች ውስጥ ይጠበቃሉ።')}</p>
+            <button className={button} disabled={busy} onClick={reviewEverything}>{text('Review all folders', 'ሁሉንም አቃፊዎች ገምግም')}</button>
+          </div>}
           {queue.limited > 0 && <div className="mx-auto max-w-sm space-y-2">
             <p className="text-sm text-amber-300">{queue.limited} {text('more ready cards are waiting.', 'ተጨማሪ ዝግጁ ካርዶች አሉ።')}</p>
             <button className={button} disabled={busy} onClick={studyMore}>{text('Study them now', 'አሁን ከልሳቸው')}</button>

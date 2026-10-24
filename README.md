@@ -290,6 +290,10 @@ Compatibility is preserved in the saved data rather than in the UI:
   raises the stored limits instead of exposing settings.
 - **Paused cards** stay out of the queue; the done screen offers **Resume paused
   cards** in one tap (uses the existing revision-checked settings action).
+- **Folder reviews never strand the library.** A review started from a folder
+  stays in that folder, but when its cards are done and other folders still
+  have ready cards, the done screen says how many and offers **Review all
+  folders** in one tap instead of claiming nothing is due.
 - **Related-card spacing and daily counts** are unchanged, and are only
   mentioned when they would otherwise hide work.
 - Rating/undo history, pending-save recovery and cross-tab ownership rules are
